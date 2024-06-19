@@ -38,16 +38,17 @@ def run_experiment(iters=1):
     print("#"*75)
     print(f"Final Average Accuracy {np.mean(accs)}")
 
-print("### importing model+scheduler ###")
+print("### importing pipeline ###")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-use_stable = False
+use_stable = True
 
 if use_stable:
     from diffusers import StableDiffusionImg2ImgPipeline
+    from diffusers import StableDiffusionPipeline
 
     model_id_or_path = "runwayml/stable-diffusion-v1-5"
-    pipe = StableDiffusionImg2ImgPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
+    pipe = StableDiffusionPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
     pipe = pipe.to(device)
 else:
     from diffusers import DDIMPipeline
@@ -68,4 +69,10 @@ timesteps = 50
 
 print("### running experiments ###")
 
-run_experiment(3)
+img = pipe(
+    "A photo of a cat"
+).images[0]
+
+img.show()
+
+# run_experiment(3)
