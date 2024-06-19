@@ -23,6 +23,7 @@ print("### defining methods ###")
 
 # @title Pulsar Encode
 
+@torch.no_grad()
 def encode(m: str, k, verbose=False):
 
     ######################
@@ -37,12 +38,28 @@ def encode(m: str, k, verbose=False):
     g_k_0.manual_seed(k_0)
     g_k_1.manual_seed(k_1)
 
-    samp = torch.randn(
-        1, model.config.in_channels, model.config.sample_size, model.config.sample_size
+    model = pipe.unet
+    scheduler = pipe.scheduler
+    scheduler.set_timesteps(timesteps)
+
+    image_shape = (
+        1, 
+        model.config.in_channels, 
+        model.config.sample_size, 
+        model.config.sample_size
     )
+    samp = torch.randn(image_shape, generator=g_k_s, dtype=model.dtype).to(device)
+
+    def enc_callback_0(pipe, step_index, timestep, callback_kwargs):
+        stop_idx = pipe.num_timesteps - 2
+        if step_index == stop_idx:
+                pipe.generator = g_k_0
+                # latents = callback_kwargs["latents"]
+                # callback_kwargs["latents"] = latents
+        return callback_kwargs
 
     for i, t in enumerate(tqdm.tqdm(scheduler.timesteps[:-2])):
-        residual = get_residual(model, samp, t)
+        residual = model(samp, t).sample
         samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
         if verbose and ((timesteps-3-i) % 5 == 0):
             display_sample(samp, i + 1)
@@ -90,6 +107,7 @@ def encode(m: str, k, verbose=False):
     return img
 
 # @title Pulsar Decode
+@torch.no_grad()
 def decode(img, k, verbose=False):
 
     ######################
@@ -104,9 +122,17 @@ def decode(img, k, verbose=False):
     g_k_0.manual_seed(k_0)
     g_k_1.manual_seed(k_1)
 
-    samp = torch.randn(
-        1, model.config.in_channels, model.config.sample_size, model.config.sample_size
+    model = pipe.unet
+    scheduler = pipe.scheduler
+    scheduler.set_timesteps(timesteps)
+
+    image_shape = (
+        1, 
+        model.config.in_channels, 
+        model.config.sample_size, 
+        model.config.sample_size
     )
+    samp = torch.randn(image_shape, generator=g_k_s, dtype=model.dtype).to(device)
 
     for i, t in enumerate(tqdm.tqdm(scheduler.timesteps[:-2])):
         residual = get_residual(model, samp, t)
@@ -152,7 +178,8 @@ def run_experiment(iters=1):
         # m_sz = (model.config.sample_size, model.config.sample_size)
         m_sz = 25600
         m = np.random.randint(2, size=m_sz)
-        k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
+        # k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
+        k = (10, 11, 12)
         print(f"Iteration {i+1} using keys {k}")
         print("ENCODING")
         img = encode(m, k)
@@ -166,11 +193,27 @@ def run_experiment(iters=1):
 
 print("### importing model+scheduler ###")
 
-from diffusers import StableDiffusionImg2ImgPipeline
+use_stable = False
 
-model_id_or_path = "runwayml/stable-diffusion-v1-5"
-pipe = StableDiffusionImg2ImgPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
-pipe = pipe.to(device)
+if not use_stable:
+    from diffusers import DDIMPipeline
+
+    repos = [
+        "google/ddpm-church-256",
+        "google/ddpm-bedroom-256",
+        "google/ddpm-cat-256",
+        "google/ddpm-celebahq-256"
+    ]
+    model_id_or_path = repos[0]
+    pipe = DDIMPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
+    pipe = pipe.to(device)
+else:
+    from diffusers import StableDiffusionImg2ImgPipeline
+
+    model_id_or_path = "runwayml/stable-diffusion-v1-5"
+    pipe = StableDiffusionImg2ImgPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
+    pipe = pipe.to(device)
+
 
 # timesteps = 3
 timesteps = 50
@@ -178,4 +221,4 @@ timesteps = 50
 
 print("### running experiments ###")
 
-run_experiment(10)
+run_experiment(1)
