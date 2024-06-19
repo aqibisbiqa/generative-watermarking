@@ -7,7 +7,7 @@ import tqdm
 
 # own files
 from utils import *
-from pulsar_methods import encode, decode
+from pulsar_methods import Pulsar
 
 print("### importing warnings ###")
 
@@ -24,13 +24,14 @@ def run_experiment(iters=1):
         # m_sz = (model.config.sample_size, model.config.sample_size)
         m_sz = 25600
         m = np.random.randint(2, size=m_sz)
-        # k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
-        k = (10, 11, 12)
+        k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
+        # k = (10, 11, 12)
         print(f"Iteration {i+1} using keys {k}")
+        p = Pulsar(pipe, k, timesteps)
         print("ENCODING")
-        img = encode(pipe, timesteps, m, k, device)
+        img = p.encode(m)
         print("DECODING")
-        out = decode(pipe, timesteps, img, k, device)
+        out = p.decode(img)
         acc = calc_acc(m, out)
         accs.append(acc)
         print(f"Run accuracy {acc}")
@@ -67,4 +68,4 @@ timesteps = 50
 
 print("### running experiments ###")
 
-run_experiment(1)
+run_experiment(3)

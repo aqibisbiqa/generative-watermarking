@@ -10,35 +10,36 @@ from ecc import *
 from rate_estimation import *
 from utils import *
 
-# @title Pulsar Encode
-@torch.no_grad()
-def encode(pipe, timesteps, m: str, k, device="cpu", verbose=False):
+class Pulsar():
+    def __init__(self, pipe, keys=(10, 11, 12), timesteps=50, debug=False):
+        self.pipe = pipe
+        self.timesteps = timesteps
+        
+        self.keys = keys
+        # k_s, k_0, k_1 = keys
+        # g_k_s, g_k_0, g_k_1 = torch.Generator(), torch.Generator(), torch.Generator()
+        # g_k_s.manual_seed(k_s)
+        # g_k_0.manual_seed(k_0)
+        # g_k_1.manual_seed(k_1)
 
-    ######################
-    # Offline phase      #
-    ######################
-    eta = 1
-    k_s, k_0, k_1 = k
-    torch.manual_seed(k_s)
+        print(self.pipe.config)
+        self.latent_model = "vae" in self.pipe.config
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    ################################################################################################################################
+    # ENCODING METHODS
+    ################################################################################################################################
     
-    g_k_s, g_k_0, g_k_1 = torch.Generator(), torch.Generator(), torch.Generator()
-    g_k_s.manual_seed(k_s)
-    g_k_0.manual_seed(k_0)
-    g_k_1.manual_seed(k_1)
-
-    model = pipe.unet
-    scheduler = pipe.scheduler
-    scheduler.set_timesteps(timesteps)
-
-    image_shape = (
-        1, 
-        model.config.in_channels, 
-        model.config.sample_size, 
-        model.config.sample_size
-    )
-    samp = torch.randn(image_shape, generator=g_k_s, dtype=model.dtype).to(device)
-
-    def enc_callback(pipe, step_index, timestep, callback_kwargs):
+    @torch.no_grad()
+    def encode(self, m: str, verbose=False):
+        if self.latent_model:
+            pass
+        else:
+            return self.encode_pixel(m, verbose)
+    
+    # For latent models, use callbacks to encode
+    def enc_callback(self, pipe, step_index, timestep, callback_kwargs):
         # interrupt denoising loop with two steps left
         # stop_idx = pipe.num_timesteps - 2
         stop_idx = pipe.num_timesteps - 3
@@ -46,6 +47,8 @@ def encode(pipe, timesteps, m: str, k, device="cpu", verbose=False):
         pipe._interrupt = True
 
         # SD requires funky code to change generator, TODO: write PR to fix
+        eta = 1
+        g_k_s, g_k_0, g_k_1 = self.generators
         pipe.generator = g_k_0 # does this work??
         extra_step_kwargs_s = pipe.prepare_extra_step_kwargs(g_k_s, eta)
         extra_step_kwargs_0 = pipe.prepare_extra_step_kwargs(g_k_0, eta)
@@ -53,7 +56,7 @@ def encode(pipe, timesteps, m: str, k, device="cpu", verbose=False):
         
         # SD Denoising Loop
         latents = callback_kwargs["latents"]
-        latents = scheduler.scale_model_input(latents, timestep)
+        latents = pipe.scheduler.scale_model_input(latents, timestep)
         noise_pred = pipe.unet(
             latents,
             timestep,
@@ -73,11 +76,12 @@ def encode(pipe, timesteps, m: str, k, device="cpu", verbose=False):
         latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_0, return_dict=False)[0]
         latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_1, return_dict=False)[0]
 
+        rate = 0
         sz = pipe.unet.config.sample_size
         m_ecc = ecc_encode(m, rate)
         m_ecc = np.reshape(m_ecc, (sz, sz))
-        if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
-        timestep = scheduler.timesteps[-2]  # penultimate timestep
+        # if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
+        timestep = pipe.scheduler.timesteps[-2]  # penultimate timestep
         for i in range(sz):
             for j in range(sz):
                 match m_ecc[i][j]:
@@ -86,7 +90,7 @@ def encode(pipe, timesteps, m: str, k, device="cpu", verbose=False):
                     case 1:
                         latents[:, :, i, j] = latents_1[:, :, i, j]
         
-        timestep = scheduler.timesteps[-1]  # last timestep
+        timestep = pipe.scheduler.timesteps[-1]  # last timestep
         noise_pred = pipe.unet(
             latents,
             t,
@@ -106,121 +110,139 @@ def encode(pipe, timesteps, m: str, k, device="cpu", verbose=False):
         
         callback_kwargs["latents"] = latents
         return callback_kwargs
-
     
-    for i, t in enumerate(tqdm.tqdm(scheduler.timesteps[:-2])):
-        residual = model(samp, t).sample
-        samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
-        if verbose and ((timesteps-3-i) % 5 == 0):
-            display_sample(samp, i + 1)
-    # print("OFFLINE SAMPLE:", samp[:, :, :3, :3], sep="\n")
+    def encode_pixel(self, m: str, verbose=False):
+        
+        ######################
+        # Offline phase      #
+        ######################
+        eta = 1
+        g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
+        timesteps = self.timesteps
 
-    # rate = estimate_rate(samp, k)
-    rate = 0
+        model = self.pipe.unet
+        scheduler = self.pipe.scheduler
+        scheduler.set_timesteps(timesteps)
+        device = self.device
 
-    ######################
-    # Online phase       #
-    ######################
-    sz = model.config.sample_size
-    m_ecc = ecc_encode(m, rate)
-    m_ecc = np.reshape(m_ecc, (sz, sz))
-    if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
+        image_shape = (
+            1, 
+            model.config.in_channels, 
+            model.config.sample_size, 
+            model.config.sample_size
+        )
+        samp = torch.randn(image_shape, generator=g_k_s, dtype=model.dtype).to(device)
+        
+        for i, t in enumerate(tqdm.tqdm(scheduler.timesteps[:-2])):
+            residual = model(samp, t).sample
+            samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
+            if verbose and ((timesteps-3-i) % 5 == 0):
+                display_sample(samp, i + 1)
+        # print("OFFLINE SAMPLE:", samp[:, :, :5, :5], sep="\n")
 
-    t = scheduler.timesteps[-2]  # penultimate timestep
+        # rate = estimate_rate(samp, k)
+        rate = 0
 
-    # prev_timestep = t - scheduler.config.num_train_timesteps // scheduler.num_inference_steps
-    # variance = scheduler._get_variance(t, prev_timestep)
-    # print(f"t: {t}\nPREVIOUS TIMESTEP: {prev_timestep}\nVARIANCE: {variance}")
+        ######################
+        # Online phase       #
+        ######################
+        sz = model.config.sample_size
+        m_ecc = ecc_encode(m, rate)
+        m_ecc = np.reshape(m_ecc, (sz, sz))
+        if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
 
-    residual = get_residual(model, samp, t)
-    # torch.manual_seed(k_0) # is this necessary?
-    samp_0 = scheduler.step(residual, t, samp, generator=g_k_0, eta=eta).prev_sample
-    # print("\n\n SAMPLE 0:", samp_0[:, :, :3, :3], sep="\n")
+        t = scheduler.timesteps[-2]  # penultimate timestep
 
-    # torch.manual_seed(k_1) # is this necessary?
-    samp_1 = scheduler.step(residual, t, samp, generator=g_k_1, eta=eta).prev_sample
-    # print("\n\n SAMPLE 1:", samp_1[:, :, :3, :3], sep="\n")
+        # prev_timestep = t - scheduler.config.num_train_timesteps // scheduler.num_inference_steps
+        # variance = scheduler._get_variance(t, prev_timestep)
+        # print(f"t: {t}\nPREVIOUS TIMESTEP: {prev_timestep}\nVARIANCE: {variance}")
 
-    for i in range(sz):
-        for j in range(sz):
-            match m_ecc[i][j]:
-                case 0:
-                    samp[:, :, i, j] = samp_0[:, :, i, j]
-                case 1:
-                    samp[:, :, i, j] = samp_1[:, :, i, j]
-    # print("\n\n PEN SAMPLE:", samp[:, :, :3, :3], sep="\n")
-
-    t = scheduler.timesteps[-1]  # last timestep
-    residual = get_residual(model, samp, t)
-    img = scheduler.step(residual, t, samp).prev_sample
-    # print("\n\n FINAL IMAGE:", img[:, :, :3, :3], sep="\n")
-    return img
-
-
-
-###########################################################################################
-# Pulsar Decode
-###########################################################################################
-@torch.no_grad()
-def decode(pipe, timesteps, img, k, device="cpu", verbose=False):
-
-    ######################
-    # Offline phase      #
-    ######################
-    eta = 1
-    k_s, k_0, k_1 = k
-    torch.manual_seed(k_s)
-
-    g_k_s, g_k_0, g_k_1 = torch.Generator(), torch.Generator(), torch.Generator()
-    g_k_s.manual_seed(k_s)
-    g_k_0.manual_seed(k_0)
-    g_k_1.manual_seed(k_1)
-
-    model = pipe.unet
-    scheduler = pipe.scheduler
-    scheduler.set_timesteps(timesteps)
-
-    image_shape = (
-        1, 
-        model.config.in_channels, 
-        model.config.sample_size, 
-        model.config.sample_size
-    )
-    samp = torch.randn(image_shape, generator=g_k_s, dtype=model.dtype).to(device)
-
-    for i, t in enumerate(tqdm.tqdm(scheduler.timesteps[:-2])):
         residual = get_residual(model, samp, t)
-        samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
-        if verbose and ((i + 1) % 5 == 0):
-            display_sample(samp, i + 1)
+        # torch.manual_seed(k_0) # is this necessary?
+        samp_0 = scheduler.step(residual, t, samp, generator=g_k_0, eta=eta).prev_sample
+        # print("\n\n SAMPLE 0:", samp_0[:, :, :3, :3], sep="\n")
 
-    # rate = estimate_rate(samp, k)
-    rate = 0
+        # torch.manual_seed(k_1) # is this necessary?
+        samp_1 = scheduler.step(residual, t, samp, generator=g_k_1, eta=eta).prev_sample
+        # print("\n\n SAMPLE 1:", samp_1[:, :, :3, :3], sep="\n")
 
-    t = scheduler.timesteps[-2]   # penultimate step
-    residual = get_residual(model, samp, t)
-    samp_0 = scheduler.step(residual, t, samp, generator=g_k_0, eta=eta).prev_sample
-    samp_1 = scheduler.step(residual, t, samp, generator=g_k_1, eta=eta).prev_sample
+        for i in range(sz):
+            for j in range(sz):
+                match m_ecc[i][j]:
+                    case 0:
+                        samp[:, :, i, j] = samp_0[:, :, i, j]
+                    case 1:
+                        samp[:, :, i, j] = samp_1[:, :, i, j]
+        # print("\n\n PEN SAMPLE:", samp[:, :, :3, :3], sep="\n")
 
-    t = scheduler.timesteps[-1]   # last step
-    residual_0 = get_residual(model, samp_0, t)
-    residual_1 = get_residual(model, samp_1, t)
-    img_0 = scheduler.step(residual_0, t, samp_0, eta=eta).prev_sample
-    img_1 = scheduler.step(residual_1, t, samp_1, eta=eta).prev_sample
+        t = scheduler.timesteps[-1]  # last timestep
+        residual = get_residual(model, samp, t)
+        img = scheduler.step(residual, t, samp).prev_sample
+        # print("\n\n FINAL IMAGE:", img[:, :, :3, :3], sep="\n")
+        return img
+    
 
-    ######################
-    # Online phase       #
-    ######################
-    sz = model.config.sample_size
-    m_dec = np.zeros((sz, sz), dtype=int)
-    for i in range(sz):
-        for j in range(sz):
-            # pos = sz * i + j
-            n_0 = torch.norm(img[:, :, i, j] - img_0[:, :, i, j])
-            n_1 = torch.norm(img[:, :, i, j] - img_1[:, :, i, j])
-            if n_0 > n_1:
-                m_dec[i][j] = 1
-    if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
-    m_dec = m_dec.flatten()
-    m = ecc_recover(m_dec, rate)
-    return m
+
+    ################################################################################################################################
+    # DECODING METHODS
+    ################################################################################################################################
+    @torch.no_grad()
+    def decode(self, img, verbose=False):
+
+        ######################
+        # Offline phase      #
+        ######################
+        eta = 1
+        g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
+        timesteps = self.timesteps
+
+        model = self.pipe.unet
+        scheduler = self.pipe.scheduler
+        scheduler.set_timesteps(timesteps)
+        device = self.device
+
+        image_shape = (
+            1, 
+            model.config.in_channels, 
+            model.config.sample_size, 
+            model.config.sample_size
+        )
+        samp = torch.randn(image_shape, generator=g_k_s, dtype=model.dtype).to(device)
+
+        for i, t in enumerate(tqdm.tqdm(scheduler.timesteps[:-2])):
+            residual = get_residual(model, samp, t)
+            samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
+            if verbose and ((i + 1) % 5 == 0):
+                display_sample(samp, i + 1)
+        # print("OFFLINE SAMPLE:", samp[:, :, :5, :5], sep="\n")
+
+        # rate = estimate_rate(samp, k)
+        rate = 0
+
+        t = scheduler.timesteps[-2]   # penultimate step
+        residual = get_residual(model, samp, t)
+        samp_0 = scheduler.step(residual, t, samp, generator=g_k_0, eta=eta).prev_sample
+        samp_1 = scheduler.step(residual, t, samp, generator=g_k_1, eta=eta).prev_sample
+
+        t = scheduler.timesteps[-1]   # last step
+        residual_0 = get_residual(model, samp_0, t)
+        residual_1 = get_residual(model, samp_1, t)
+        img_0 = scheduler.step(residual_0, t, samp_0, eta=eta).prev_sample
+        img_1 = scheduler.step(residual_1, t, samp_1, eta=eta).prev_sample
+
+        ######################
+        # Online phase       #
+        ######################
+        sz = model.config.sample_size
+        m_dec = np.zeros((sz, sz), dtype=int)
+        for i in range(sz):
+            for j in range(sz):
+                # pos = sz * i + j
+                n_0 = torch.norm(img[:, :, i, j] - img_0[:, :, i, j])
+                n_1 = torch.norm(img[:, :, i, j] - img_1[:, :, i, j])
+                if n_0 > n_1:
+                    m_dec[i][j] = 1
+        if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
+        m_dec = m_dec.flatten()
+        m = ecc_recover(m_dec, rate)
+        return m
