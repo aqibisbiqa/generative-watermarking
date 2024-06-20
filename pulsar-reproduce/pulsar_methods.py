@@ -34,38 +34,51 @@ class Pulsar():
     @torch.no_grad()
     def encode(self, m: str, verbose=False):
         if self.latent_model:
-            pass
+            return self.encode_latent(m, verbose)
         else:
             return self.encode_pixel(m, verbose)
     
-    # For latent models, use callbacks to encode
-    def encode_latent(self):
+    def encode_latent(self, m: str, verbose=False):
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
+
+        # For latent models, use callback to encode
         def enc_callback(pipe, step_index, timestep, callback_kwargs):
             # interrupt denoising loop with two steps left
             # stop_idx = pipe.num_timesteps - 2
+            latents = callback_kwargs["latents"]
+            print(f"{step_index} {timestep}: {latents.shape}")
             stop_idx = pipe.num_timesteps - 3
             if step_index != stop_idx: return callback_kwargs
             pipe._interrupt = True
 
+            # Extra kwargs :(
             # SD requires funky code to change generator, TODO: write PR to fix
             pipe.generator = g_k_0 # does this work??
             extra_step_kwargs_s = pipe.prepare_extra_step_kwargs(g_k_s, eta)
             extra_step_kwargs_0 = pipe.prepare_extra_step_kwargs(g_k_0, eta)
             extra_step_kwargs_1 = pipe.prepare_extra_step_kwargs(g_k_1, eta)
             
-            # SD Denoising Loop
             latents = callback_kwargs["latents"]
-            latents = pipe.scheduler.scale_model_input(latents, timestep)
+            prompt_embeds = callback_kwargs["prompt_embeds"]
+            timestep_cond = None
+            added_cond_kwargs = None
+            
+            ###################
+            # "Online" Phase
+            ###################
+            step_index += 1
+            timestep = pipe.scheduler.timesteps[-2]  ### PENULTIMATE STEP ###
+            latent_model_input = torch.cat([latents] * 2) if pipe.do_classifier_free_guidance else latents
+            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, timestep)
             noise_pred = pipe.unet(
-                latents,
+                latent_model_input,
                 timestep,
-                # encoder_hidden_states=prompt_embeds,
-                # timestep_cond=timestep_cond,
-                # cross_attention_kwargs=self.cross_attention_kwargs,
-                # added_cond_kwargs=added_cond_kwargs,
+                encoder_hidden_states=prompt_embeds,
+                timestep_cond=timestep_cond,
+                cross_attention_kwargs=pipe.cross_attention_kwargs,
+                added_cond_kwargs=added_cond_kwargs,
                 return_dict=False,
             )[0]
 
@@ -78,12 +91,15 @@ class Pulsar():
             latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_0, return_dict=False)[0]
             latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_1, return_dict=False)[0]
 
+            print(f"{step_index} {timestep}: {latents_0.shape} latents_0")
+            print(f"{step_index} {timestep}: {latents_1.shape} latents_1")
+            # rate = estimate_rate(latents, self.keys)
             rate = 0
+            print(pipe.unet.config)
             sz = pipe.unet.config.sample_size
             m_ecc = ecc_encode(m, rate)
             m_ecc = np.reshape(m_ecc, (sz, sz))
-            # if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
-            timestep = pipe.scheduler.timesteps[-2]  # penultimate timestep
+            if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
             for i in range(sz):
                 for j in range(sz):
                     match m_ecc[i][j]:
@@ -91,15 +107,22 @@ class Pulsar():
                             latents[:, :, i, j] = latents_0[:, :, i, j]
                         case 1:
                             latents[:, :, i, j] = latents_1[:, :, i, j]
+            print(f"{step_index} {timestep}: {latents.shape} latents")
             
-            timestep = pipe.scheduler.timesteps[-1]  # last timestep
+            
+            
+            step_index += 1
+            timestep = pipe.scheduler.timesteps[-1]  ### LAST STEP ###
+            latent_model_input = torch.cat([latents] * 2) if pipe.do_classifier_free_guidance else latents
+            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, timestep)
+            print(f"{step_index} {timestep}: {latent_model_input.shape}")
             noise_pred = pipe.unet(
-                latents,
-                t,
-                # encoder_hidden_states=prompt_embeds,
-                # timestep_cond=timestep_cond,
-                # cross_attention_kwargs=self.cross_attention_kwargs,
-                # added_cond_kwargs=added_cond_kwargs,
+                latent_model_input,
+                timestep,
+                encoder_hidden_states=prompt_embeds,
+                timestep_cond=timestep_cond,
+                cross_attention_kwargs=pipe.cross_attention_kwargs,
+                added_cond_kwargs=added_cond_kwargs,
                 return_dict=False,
             )[0]
 
@@ -113,12 +136,21 @@ class Pulsar():
             callback_kwargs["latents"] = latents
             return callback_kwargs
         
+        def test_callback(pipe, step_index, timestep, callback_kwargs):
+            latents = callback_kwargs["latents"]
+            print(f"{step_index} {timestep}: {latents.shape}")
+            # stop_idx = pipe.num_timesteps - 3
+            # if step_index != stop_idx: return callback_kwargs
+            # pipe._interrupt = True
+
+            return callback_kwargs
+        
         return self.pipe(
             "A photo of a cat",
             num_inference_steps=timesteps,
             generator=g_k_s,
             callback_on_step_end=enc_callback,
-            callback_on_step_end_tensor_inputs=["latents"],
+            callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
         ).images[0]
 
     def encode_pixel(self, m: str, verbose=False):
@@ -150,7 +182,7 @@ class Pulsar():
                 display_sample(samp, i + 1)
         # print("OFFLINE SAMPLE:", samp[:, :, :5, :5], sep="\n")
 
-        # rate = estimate_rate(samp, k)
+        # rate = estimate_rate(samp, self.keys)
         rate = 0
 
         ######################
@@ -203,7 +235,122 @@ class Pulsar():
         else:
             return self.decode_pixel(img, verbose)
 
-    def decode_pixel(self, img,verbose=False):
+    def decode_latent(self, img, verbose=False):
+        eta = 1
+        g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
+        timesteps = self.timesteps
+
+        # For latent models, use callback to encode
+        def dec_callback(pipe, step_index, timestep, callback_kwargs):
+            # interrupt denoising loop with two steps left
+            # stop_idx = pipe.num_timesteps - 2
+            latents = callback_kwargs["latents"]
+            print(f"{step_index} {timestep}: {latents.shape}")
+            stop_idx = pipe.num_timesteps - 3
+            if step_index != stop_idx: return callback_kwargs
+            pipe._interrupt = True
+
+            # Extra kwargs :(
+            # SD requires funky code to change generator, TODO: write PR to fix
+            pipe.generator = g_k_0 # does this work??
+            extra_step_kwargs_s = pipe.prepare_extra_step_kwargs(g_k_s, eta)
+            extra_step_kwargs_0 = pipe.prepare_extra_step_kwargs(g_k_0, eta)
+            extra_step_kwargs_1 = pipe.prepare_extra_step_kwargs(g_k_1, eta)
+            
+            latents = callback_kwargs["latents"]
+            prompt_embeds = callback_kwargs["prompt_embeds"]
+            timestep_cond = None
+            added_cond_kwargs = None
+            
+            ###################
+            # "Online" Phase
+            ###################
+            step_index += 1
+            timestep = pipe.scheduler.timesteps[-2]  ### PENULTIMATE STEP ###
+            latent_model_input = torch.cat([latents] * 2) if pipe.do_classifier_free_guidance else latents
+            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, timestep)
+            noise_pred = pipe.unet(
+                latent_model_input,
+                timestep,
+                encoder_hidden_states=prompt_embeds,
+                timestep_cond=timestep_cond,
+                cross_attention_kwargs=pipe.cross_attention_kwargs,
+                added_cond_kwargs=added_cond_kwargs,
+                return_dict=False,
+            )[0]
+
+            # perform guidance
+            if pipe.do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+            # compute two latents using k_0 and k_1
+            latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_0, return_dict=False)[0]
+            latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_1, return_dict=False)[0]
+
+            print(f"{step_index} {timestep}: {latents_0.shape} latents_0")
+            print(f"{step_index} {timestep}: {latents_1.shape} latents_1")
+            # rate = estimate_rate(latents, self.keys)
+            rate = 0
+            print(pipe.unet.config)
+            sz = pipe.unet.config.sample_size
+            m_ecc = ecc_encode(m, rate)
+            m_ecc = np.reshape(m_ecc, (sz, sz))
+            if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
+            for i in range(sz):
+                for j in range(sz):
+                    match m_ecc[i][j]:
+                        case 0:
+                            latents[:, :, i, j] = latents_0[:, :, i, j]
+                        case 1:
+                            latents[:, :, i, j] = latents_1[:, :, i, j]
+            print(f"{step_index} {timestep}: {latents.shape} latents")
+            
+            
+            
+            step_index += 1
+            timestep = pipe.scheduler.timesteps[-1]  ### LAST STEP ###
+            latent_model_input = torch.cat([latents] * 2) if pipe.do_classifier_free_guidance else latents
+            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, timestep)
+            print(f"{step_index} {timestep}: {latent_model_input.shape}")
+            noise_pred = pipe.unet(
+                latent_model_input,
+                timestep,
+                encoder_hidden_states=prompt_embeds,
+                timestep_cond=timestep_cond,
+                cross_attention_kwargs=pipe.cross_attention_kwargs,
+                added_cond_kwargs=added_cond_kwargs,
+                return_dict=False,
+            )[0]
+
+            # perform guidance
+            if pipe.do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+            latents = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_s, return_dict=False)[0]
+            
+            callback_kwargs["latents"] = latents
+            return callback_kwargs
+        
+        def test_callback(pipe, step_index, timestep, callback_kwargs):
+            latents = callback_kwargs["latents"]
+            print(f"{step_index} {timestep}: {latents.shape}")
+            # stop_idx = pipe.num_timesteps - 3
+            # if step_index != stop_idx: return callback_kwargs
+            # pipe._interrupt = True
+
+            return callback_kwargs
+        
+        return self.pipe(
+            "A photo of a cat",
+            num_inference_steps=timesteps,
+            generator=g_k_s,
+            callback_on_step_end=dec_callback,
+            callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
+        ).images[0]
+
+    def decode_pixel(self, img, verbose=False):
 
         ######################
         # Offline phase      #

@@ -22,14 +22,18 @@ def run_experiment(iters=1):
     for i in range(iters):
         print("#"*75)
         # m_sz = (model.config.sample_size, model.config.sample_size)
-        m_sz = 25600
+        # img_sz = 256 or 64
+        # m_sz = (img_sz**2 // 512) * 200
+        # m_sz = 25600
+        m_sz = 1600
         m = np.random.randint(2, size=m_sz)
-        k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
-        # k = (10, 11, 12)
+        # k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
+        k = (10, 11, 12)
         print(f"Iteration {i+1} using keys {k}")
         p = Pulsar(pipe, k, timesteps)
         print("ENCODING")
         img = p.encode(m)
+        img.save("experiment.png")
         print("DECODING")
         out = p.decode(img)
         acc = calc_acc(m, out)
@@ -69,10 +73,10 @@ timesteps = 50
 
 print("### running experiments ###")
 
-img = pipe(
-    "A photo of a cat"
-).images[0]
+# img = pipe(
+#     "A photo of a cat"
+# ).images[0]
 
-img.show()
+# img.save("sd3_hello_world-no-T5.png")
 
-# run_experiment(3)
+run_experiment(1)

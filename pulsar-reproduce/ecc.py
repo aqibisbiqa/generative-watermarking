@@ -29,6 +29,7 @@ def get_code(err_rate):
     #"""
     return outer, inner
 
+# Turns bitstring into encoded bytestring
 def ecc_encode(payload_bits, rate=None):
     dbg_print("payload_bits", payload_bits)
     # convert bits -> bytes
