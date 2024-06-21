@@ -6,7 +6,7 @@ import functools
 import tqdm
 
 # own files
-from utils import *
+import utils
 from pulsar_methods import Pulsar
 
 print("### importing warnings ###")
@@ -22,21 +22,22 @@ def run_experiment(iters=1):
     for i in range(iters):
         print("#"*75)
         # m_sz = (model.config.sample_size, model.config.sample_size)
-        # img_sz = 256 or 64
-        # m_sz = (img_sz**2 // 512) * 200
+        img_sz = pipe.unet.config.sample_size
+        m_sz = (img_sz**2 // 512) * 200
         # m_sz = 25600
-        m_sz = 1600
+        # m_sz = 1600
         m = np.random.randint(2, size=m_sz)
         # k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
         k = (10, 11, 12)
         print(f"Iteration {i+1} using keys {k}")
-        p = Pulsar(pipe, k, timesteps)
+        p = Pulsar(pipe, k, timesteps, prompt="A photo of a dog")
         print("ENCODING")
         img = p.encode(m)
-        img.save("experiment.png")
         print("DECODING")
         out = p.decode(img)
-        acc = calc_acc(m, out)
+        print(f"length of m is {len(m)}")
+        print(f"length of out is {len(out)}")
+        acc = utils.calc_acc(m, out)
         accs.append(acc)
         print(f"Run accuracy {acc}")
     print("#"*75)
