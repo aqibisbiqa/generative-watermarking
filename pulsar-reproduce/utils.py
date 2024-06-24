@@ -26,9 +26,23 @@ def get_residual(model, sample, t):
     return residual
 
 def dbg_print(name, arr):
-    debug = False
+    debug = True
     if debug:
         print(f"{name:13s}: {str(len(arr)):5s} {arr}")
 
 def calc_acc(m, out):
+    m = np.unpackbits(m)
+    out = np.unpackbits(out)
     return len(np.where(m==out)[0]) / m.size
+
+def apply_op_to_chunks(arr: np.ndarray, chunk_size, op):
+    l = len(arr)
+    arr.resize(
+        chunk_size * ((l - 1) // chunk_size + 1)
+    )
+    out = []
+    for i in range(len(arr) // chunk_size):
+        start = i * chunk_size
+        chunk = arr[start:start+chunk_size].tolist()
+        out.extend(op(chunk))
+    return out

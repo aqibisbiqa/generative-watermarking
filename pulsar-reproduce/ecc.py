@@ -1,8 +1,8 @@
 import torch
 import numpy as np
-from utils import *
-from coding.grs import *
-from coding.hamming import *
+import utils
+from coding.grs import GRSCode
+# from coding.hamming import *
 
 # @title ECC
 
@@ -30,78 +30,33 @@ def get_code(err_rate):
     return outer, inner
 
 # Turns bitstring into encoded bytestring
-def ecc_encode(payload_bits, rate=None):
-    dbg_print("payload_bits", payload_bits)
-    # convert bits -> bytes
-    num_bits = len(payload_bits)
-    full_payload = []
-    for i in range(num_bits)[::8]:
-        missing = -min(i+8, num_bits) % 8
-        num = 0
-        for b in payload_bits[i:i+8-missing]:
-            num <<= 1
-            num |= b
-        num <<= missing
-        full_payload.append(num)
-    dbg_print("full_payload", full_payload)
-
-    # encode
+def ecc_encode(pay_bytes, rate=None):
     outer, inner = get_code(rate)
-    message_bytes = []
-        # first inner (TODO)
-        # then outer
-    pay_len = outer.payload_length
-    msg_len = outer.message_length
-    for i in range(len(full_payload))[::pay_len]:
-        missing = -min(i+pay_len, len(full_payload)) % pay_len
-        curr_pay_ext = full_payload[i:i+pay_len-missing] + [0]*missing
-        dbg_print("curr_pay_ext", curr_pay_ext)
-        msg_bytes = outer.encode(curr_pay_ext)
-        message_bytes.extend(msg_bytes + [0]*(msg_len-len(msg_bytes)))
-    dbg_print("message_bytes", message_bytes)
+
+    # (TODO) encode payload with INNER code
+    
+
+    # encode payload with OUTER code
+    msg_bytes = utils.apply_op_to_chunks(pay_bytes, outer.payload_length, outer.encode)
     
     # convert bytes -> bits
-    message = []
-    for byte in message_bytes:
-        message.extend(
-            [(byte >> i) % 2 for i in range(7,-1,-1)]
-        )
-    dbg_print("message", message)
-    return message
+    msg_bits = np.unpackbits(np.array(msg_bytes, dtype=np.uint8))
 
-def ecc_recover(message_bits, rate=None):
-    dbg_print("message_bits", message_bits)
-    # convert bits -> bytes
-    num_bits = len(message_bits)
-    message_bytes = []
-    for i in range(num_bits)[::8]:
-        missing = -min(i+8, num_bits) % 8
-        num = 0
-        for b in message_bits[i:i+8-missing]:
-            num <<= 1
-            num |= b
-        num <<= missing
-        message_bytes.append(num)
-    dbg_print("message_bytes", message_bytes)
+    return msg_bits
 
-    # encode
+def ecc_recover(msg_bits, rate=None):
     outer, inner = get_code(rate)
-    payload_bytes = []    
-        # first outer
-    msg_len = outer.message_length
-    for i in range(len(message_bytes))[::msg_len]:
-        missing = -min(i+msg_len, len(message_bytes)) % msg_len
-        msg_bytes = message_bytes[i:i+msg_len-missing] + [0]*missing
-        pay_bytes = outer.decode(msg_bytes)
-        dbg_print("pay_bytes", pay_bytes)
-        payload_bytes.extend(pay_bytes)
-    dbg_print("payload_bytes", payload_bytes)
-        # then inner (TODO)
+
+    # convert bits -> bytes
+    msg_bytes = np.packbits(msg_bits)
+
+    # decode message with OUTER code
+    pay_bytes = utils.apply_op_to_chunks(msg_bytes, outer.message_length, outer.decode)
     
-    # convert bytes -> bits
-    payload = []
-    for byte in payload_bytes:
-        payload_bits = [(byte >> i) % 2 for i in range(7,-1,-1)]
-        payload.extend(payload_bits)
-    dbg_print("payload", payload)
-    return payload
+    # (TODO) decode message with INNER code
+
+
+    # ensure output is array of bytes
+    pay_bytes = np.array(pay_bytes, dtype=np.uint8)
+
+    return pay_bytes
