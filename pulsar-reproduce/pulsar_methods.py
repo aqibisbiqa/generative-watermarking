@@ -144,7 +144,7 @@ class Pulsar():
             callback_on_step_end=enc_callback,
             callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
         ).images[0]
-        if self.save_images: img.save("encode_latent.png")
+        if self.save_images: img.save("experiment_data/images/encode_latent.png")
         return img
 
     def encode_pixel(self, m: str, verbose=False):
@@ -346,8 +346,8 @@ class Pulsar():
         img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pil")[0]
         img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil")[0]
 
-        if self.save_images: img_0.save("decode_latent_0.png")
-        if self.save_images: img_1.save("decode_latent_1.png")
+        if self.save_images: img_0.save("experiment_data/images/decode_latent_0.png")
+        if self.save_images: img_1.save("experiment_data/images/decode_latent_1.png")
 
         def pil_to_latent(image, sample_mode="sample"):
             image = transforms.functional.pil_to_tensor(image).to(torch.float16).to(self.device)
