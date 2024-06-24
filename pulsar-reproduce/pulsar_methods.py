@@ -12,7 +12,7 @@ from rate_estimation import *
 from utils import *
 
 class Pulsar():
-    def __init__(self, pipe, keys=(10, 11, 12), timesteps=50, debug=False, prompt="A photo of a cat"):
+    def __init__(self, pipe, keys=(10, 11, 12), timesteps=50, debug=False, save_images=True, prompt="A photo of a cat"):
         self.pipe = pipe
         self.timesteps = timesteps
         self.prompt = prompt
@@ -28,6 +28,7 @@ class Pulsar():
         self.latent_model = "vae" in self.pipe.config
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.save_images = save_images
 
     ################################################################################################################################
     # ENCODING METHODS
@@ -136,15 +137,6 @@ class Pulsar():
             callback_kwargs["latents"] = latents
             return callback_kwargs
         
-        def test_callback(pipe, step_index, timestep, callback_kwargs):
-            latents = callback_kwargs["latents"]
-            print(f"{step_index} {timestep}: {latents.shape}")
-            # stop_idx = pipe.num_timesteps - 3
-            # if step_index != stop_idx: return callback_kwargs
-            # pipe._interrupt = True
-
-            return callback_kwargs
-        
         img = self.pipe(
             self.prompt,
             num_inference_steps=timesteps,
@@ -152,7 +144,7 @@ class Pulsar():
             callback_on_step_end=enc_callback,
             callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
         ).images[0]
-        img.save("encode_latent.png")
+        if self.save_images: img.save("encode_latent.png")
         return img
 
     def encode_pixel(self, m: str, verbose=False):
@@ -338,15 +330,6 @@ class Pulsar():
             callback_kwargs["latents"] = torch.zeros_like(latents)
             return callback_kwargs
         
-        def test_callback(pipe, step_index, timestep, callback_kwargs):
-            latents = callback_kwargs["latents"]
-            print(f"{step_index} {timestep}: {latents.shape}")
-            # stop_idx = pipe.num_timesteps - 3
-            # if step_index != stop_idx: return callback_kwargs
-            # pipe._interrupt = True
-
-            return callback_kwargs
-        
         _ = self.pipe(
             self.prompt,
             num_inference_steps=timesteps,
@@ -355,34 +338,44 @@ class Pulsar():
             callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
         ).images[0]
 
-        print(f"**type of latents_0 is {type(latents_0)}")
+        # print(f"**type of latents_0 is {type(latents_0)}")
 
         img_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
         img_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
 
-        do_denormalize = [True] * img_0.shape[0]
+        img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pil")[0]
+        img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil")[0]
 
-        img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pil", do_denormalize=do_denormalize)[0]
-        img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil", do_denormalize=do_denormalize)[0]
+        if self.save_images: img_0.save("decode_latent_0.png")
+        if self.save_images: img_1.save("decode_latent_1.png")
+
+        def pil_to_latent(image, sample_mode="sample"):
+            image = transforms.functional.pil_to_tensor(image).to(torch.float16).to(self.device)
+            image = torch.unsqueeze(image, 0)
+            if sample_mode == "sample":
+                img_to_latent = lambda image : self.pipe.vae.encode(image).latent_dist.sample(g_k_s) * self.pipe.vae.config.scaling_factor
+            elif sample_mode == "mode":
+                img_to_latent = lambda image : self.pipe.vae.encode(image).latent_dist.mode() * self.pipe.vae.config.scaling_factor
+            else:
+                img_to_latent = lambda image : self.pipe.vae.encode(image).latents * self.pipe.vae.config.scaling_factor
+            return img_to_latent(image)
+
+        latents = pil_to_latent(img)
+        latents_0 = pil_to_latent(img_0)
+        latents_1 = pil_to_latent(img_1)
         
-        img_0.save("decode_latent_0.png")
-        img_1.save("decode_latent_1.png")
+        assert latents.shape == latents_0.shape == latents_1.shape
 
-        img = transforms.functional.pil_to_tensor(img).to(torch.float16)
-        img_0 = transforms.functional.pil_to_tensor(img_0).to(torch.float16)
-        img_1 = transforms.functional.pil_to_tensor(img_1).to(torch.float16)
-
-        print(img)
-        print(img_0)
-        print(img_1)
+        print(latents[0, 0, :3, :3])
+        print(latents_0[0, 0, :3, :3])
+        print(latents_1[0, 0, :3, :3])
 
         sz = self.pipe.unet.config.sample_size
         m_dec = np.zeros((sz, sz), dtype=int)
         for i in range(sz):
             for j in range(sz):
-                # print(img[:, i, j] - img_0[:, i, j])
-                n_0 = torch.norm(img[:, i, j] - img_0[:, i, j])
-                n_1 = torch.norm(img[:, i, j] - img_1[:, i, j])
+                n_0 = torch.norm(latents[:, :, i, j] - latents_0[:, :, i, j])
+                n_1 = torch.norm(latents[:, :, i, j] - latents_1[:, :, i, j])
                 if n_0 > n_1:
                     m_dec[i][j] = 1
         if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
