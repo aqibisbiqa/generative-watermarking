@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 
 # own files
 import ecc
-import rate_estimation
+from rate_estimation import estimate_rate
 import utils
 
 class Pulsar():
@@ -37,27 +37,34 @@ class Pulsar():
     @torch.no_grad()
     def encode(self, m: str, verbose=False):
         if self.latent_model:
-            return self.encode_latent(m, verbose)
+            return self._encode_latent(m, verbose)
         else:
-            return self.encode_pixel(m, verbose)
+            return self._encode_pixel(m, verbose)
     
-    def encode_latent(self, m: str, verbose=False):
+    def _encode_latent(self, m: str, verbose=False):
+
+        # Synchronize settings
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
 
-        # For latent models, use callback to encode
+        # For latent models, use callback to interact with denoising loop
         def enc_callback(pipe, step_index, timestep, callback_kwargs):
-            # interrupt denoising loop with two steps left
-            # stop_idx = pipe.num_timesteps - 2
-            latents = callback_kwargs["latents"]
-            stop_idx = pipe.num_timesteps - 3
-            if step_index != stop_idx: return callback_kwargs
+            
+            ##################
+            # Offline Phase
+            ##################
+            
+            # Interrupt denoising loop with two steps left
+            if step_index != pipe.num_timesteps - 3:
+                return callback_kwargs
+
+            # The T-2'th denoising step is done, we do the rest manually
             pipe._interrupt = True
 
             # Extra kwargs :(
-            # SD requires funky code to change generator, TODO: write PR to fix
-            pipe.generator = g_k_0 # does this work??
+                # SD requires funky code to change generator, TODO: write PR to fix
+            # pipe.generator = g_k_0 # does this work??
             extra_step_kwargs_s = pipe.prepare_extra_step_kwargs(g_k_s, eta)
             extra_step_kwargs_0 = pipe.prepare_extra_step_kwargs(g_k_0, eta)
             extra_step_kwargs_1 = pipe.prepare_extra_step_kwargs(g_k_1, eta)
@@ -66,12 +73,19 @@ class Pulsar():
             prompt_embeds = callback_kwargs["prompt_embeds"]
             timestep_cond = None
             added_cond_kwargs = None
+
+            # Estimate rate
+            rate = estimate_rate(self, latents)
             
-            ###################
-            # "Online" Phase
-            ###################
+            #################
+            # Online Phase
+            #################
+
+            # Perform T-1'th denoising step (g_k_0 and g_k_1)
             step_index += 1
             timestep = pipe.scheduler.timesteps[-2]  ### PENULTIMATE STEP ###
+
+                    # predict noise
             latent_model_input = torch.cat([latents] * 2) if pipe.do_classifier_free_guidance else latents
             latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, timestep)
             noise_pred = pipe.unet(
@@ -84,39 +98,25 @@ class Pulsar():
                 return_dict=False,
             )[0]
 
-            # perform guidance
+                    # perform guidance
             if pipe.do_classifier_free_guidance:
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                 noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-            # compute two latents using k_0 and k_1
+                    # sample two latents (g_k_0 and g_k_1)
             latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_0, return_dict=False)[0]
             latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_1, return_dict=False)[0]
-
-            # print(f"{step_index} {timestep}: {latents_0.shape} latents_0")
-            # print(f"{step_index} {timestep}: {latents_1.shape} latents_1")
             
-            # rate = estimate_rate(latents, self.keys)
-            rate = 0
-            # print(pipe.unet.config)
-            sz = pipe.unet.config.sample_size
-            m_ecc = ecc.ecc_encode(m, rate)
-            m_ecc = np.reshape(m_ecc, (sz, sz))
-            if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
-            for i in range(sz):
-                for j in range(sz):
-                    match m_ecc[i][j]:
-                        case 0:
-                            latents[:, :, i, j] = latents_0[:, :, i, j]
-                        case 1:
-                            latents[:, :, i, j] = latents_1[:, :, i, j]
-            # print(f"{step_index} {timestep}: {latents.shape} latents")
+            # Encode payload and use it to mix the two latents 
+            latents[:, :] = self._mix_samples_using_payload(m, rate, latents_0, latents_1, verbose)
             
+            # Perform T'th denoising step (deterministic)
             step_index += 1
             timestep = pipe.scheduler.timesteps[-1]  ### LAST STEP ###
+
+                    # predict noise
             latent_model_input = torch.cat([latents] * 2) if pipe.do_classifier_free_guidance else latents
             latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, timestep)
-            # print(f"{step_index} {timestep}: {latent_model_input.shape}")
             noise_pred = pipe.unet(
                 latent_model_input,
                 timestep,
@@ -127,16 +127,19 @@ class Pulsar():
                 return_dict=False,
             )[0]
 
-            # perform guidance
+                    # perform guidance
             if pipe.do_classifier_free_guidance:
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                 noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_text - noise_pred_uncond)
 
+                    # sample final latent (determinstic)
             latents = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_s, return_dict=False)[0]
             
+            # Exit callback by returning new latent w/ encoded message
             callback_kwargs["latents"] = latents
             return callback_kwargs
         
+        # Generate stegoimage
         img = self.pipe(
             self.prompt,
             num_inference_steps=timesteps,
@@ -144,14 +147,19 @@ class Pulsar():
             callback_on_step_end=enc_callback,
             callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
         ).images[0]
+
+        # Save optionally
         if self.save_images: img.save("experiment_data/images/encode_latent.png")
+        
         return img
 
-    def encode_pixel(self, m: str, verbose=False):
+    def _encode_pixel(self, m: str, verbose=False):
         
-        ######################
-        # Offline phase      #
-        ######################
+        #################
+        # Offline phase #
+        #################
+
+        # Synchronize settings
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
@@ -169,55 +177,41 @@ class Pulsar():
         )
         samp = torch.randn(image_shape, generator=g_k_s, dtype=model.dtype).to(device)
         
+        # Perform first T-2 denoising steps (g_k_s)
         for i, t in enumerate(tqdm.tqdm(scheduler.timesteps[:-2])):
             residual = model(samp, t).sample
             samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
             if verbose and ((timesteps-3-i) % 5 == 0):
                 utils.display_sample(samp, i + 1)
-        # print("OFFLINE SAMPLE:", samp[:, :, :5, :5], sep="\n")
 
-        # rate = estimate_rate(samp, self.keys)
-        rate = 0
+        # Estimate rate
+        rate = estimate_rate(self, samp)
 
-        ######################
-        # Online phase       #
-        ######################
-        sz = model.config.sample_size
-        m_ecc = ecc.ecc_encode(m, rate)
-        m_ecc = np.reshape(m_ecc, (sz, sz))
-        if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
+        ##################
+        #  Online phase  #
+        ##################
 
-        t = scheduler.timesteps[-2]  # penultimate timestep
-
-        # prev_timestep = t - scheduler.config.num_train_timesteps // scheduler.num_inference_steps
-        # variance = scheduler._get_variance(t, prev_timestep)
-        # print(f"t: {t}\nPREVIOUS TIMESTEP: {prev_timestep}\nVARIANCE: {variance}")
-
+        # Perform T-1'th denoising step (g_k_0 and g_k_1)
+        t = scheduler.timesteps[-2]  ### PENULTIMATE STEP ###
         residual = model(samp, t).sample
-        # torch.manual_seed(k_0) # is this necessary?
         samp_0 = scheduler.step(residual, t, samp, generator=g_k_0, eta=eta).prev_sample
-        # print("\n\n SAMPLE 0:", samp_0[:, :, :3, :3], sep="\n")
-
-        # torch.manual_seed(k_1) # is this necessary?
         samp_1 = scheduler.step(residual, t, samp, generator=g_k_1, eta=eta).prev_sample
-        # print("\n\n SAMPLE 1:", samp_1[:, :, :3, :3], sep="\n")
 
-        for i in range(sz):
-            for j in range(sz):
-                match m_ecc[i][j]:
-                    case 0:
-                        samp[:, :, i, j] = samp_0[:, :, i, j]
-                    case 1:
-                        samp[:, :, i, j] = samp_1[:, :, i, j]
-        # print("\n\n PEN SAMPLE:", samp[:, :, :3, :3], sep="\n")
+        # Encode payload and use it to mix the two samples pixelwise
+        samp[:, :] = self._mix_samples_using_payload(m, rate, samp_0, samp_1, verbose)
 
-        t = scheduler.timesteps[-1]  # last timestep
+        # Perform T'th denoising step (deterministic)
+        t = scheduler.timesteps[-1]  ### LAST STEP ###
         residual = model(samp, t).sample
         img = scheduler.step(residual, t, samp).prev_sample
-        # print("\n\n FINAL IMAGE:", img[:, :, :3, :3], sep="\n")
         return img
     
-
+    def _mix_samples_using_payload(self, payload, rate, samp_0, samp_1, verbose=False):
+        m_ecc = ecc.ecc_encode(payload, rate)
+        m_ecc = np.reshape(m_ecc, samp_0[0, 0].shape)
+        if verbose: print("### Message BEFORE Transmission ###", m_ecc, "#"*35, sep="\n")
+        m_ecc = torch.from_numpy(m_ecc).to(self.device)
+        return torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
 
     ################################################################################################################################
     # DECODING METHODS
@@ -225,28 +219,37 @@ class Pulsar():
     @torch.no_grad()
     def decode(self, img, verbose=False):
         if self.latent_model:
-            return self.decode_latent(img, verbose)
+            return self._decode_latent(img, verbose)
         else:
-            return self.decode_pixel(img, verbose)
+            return self._decode_pixel(img, verbose)
 
-    def decode_latent(self, img, verbose=False):
+    def _decode_latent(self, img, verbose=False):
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
 
+        global latents_0
+        global latents_1
+        global rate
+
         # For latent models, use callback to get latents prior to vae decode
         def dec_callback(pipe, step_index, timestep, callback_kwargs):
-            # interrupt denoising loop with two steps left
-            # stop_idx = pipe.num_timesteps - 2
-            latents = callback_kwargs["latents"]
             
-            # Use globals so they can be references outside this callback
+            ##################
+            # Offline Phase
+            ##################
+
+            # Interrupt denoising loop with two steps left
+            if step_index != pipe.num_timesteps - 3:
+                return callback_kwargs
+
+            # The T-2'th denoising step is done, we do the rest manually
+            pipe._interrupt = True
+
+            # Use globals so they can be referenced outside this callback
             global latents_0
             global latents_1
             global rate
-            stop_idx = pipe.num_timesteps - 3
-            if step_index != stop_idx: return callback_kwargs
-            pipe._interrupt = True
 
             # Extra kwargs :(
             # SD requires funky code to change generator, TODO: write PR to fix
@@ -259,12 +262,15 @@ class Pulsar():
             prompt_embeds = callback_kwargs["prompt_embeds"]
             timestep_cond = None
             added_cond_kwargs = None
-            
-            ###################
-            # "Online" Phase
-            ###################
+
+            # Estimate rate
+            rate = estimate_rate(self, latents)
+
+            # Perform T-1'th denoising step (g_k_0 and g_k_1)
             step_index += 1
             timestep = pipe.scheduler.timesteps[-2]  ### PENULTIMATE STEP ###
+            
+                    # predict noise
             latent_model_input = torch.cat([latents] * 2) if pipe.do_classifier_free_guidance else latents
             latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, timestep)
             noise_pred = pipe.unet(
@@ -277,25 +283,22 @@ class Pulsar():
                 return_dict=False,
             )[0]
 
-            # perform guidance
+                    # perform guidance
             if pipe.do_classifier_free_guidance:
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                 noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-            # compute two latents using k_0 and k_1
+                    # sample two latents (g_k_0 and g_k_1)
             latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_0, return_dict=False)[0]
             latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_1, return_dict=False)[0]
             
-            # rate = estimate_rate(latents, self.keys)
-            rate = 0
-            
+            # Perform T'th denoising step (deterministic)
             step_index += 1
             timestep = pipe.scheduler.timesteps[-1]  ### LAST STEP ###
+            
+                    # predict noise using latents_0 and latents_1
             latent_model_input_0 = torch.cat([latents_0] * 2) if pipe.do_classifier_free_guidance else latents_0
             latent_model_input_0 = pipe.scheduler.scale_model_input(latent_model_input_0, timestep)
-            latent_model_input_1 = torch.cat([latents_1] * 2) if pipe.do_classifier_free_guidance else latents_1
-            latent_model_input_1 = pipe.scheduler.scale_model_input(latent_model_input_1, timestep)
-            
             noise_pred_0 = pipe.unet(
                 latent_model_input_0,
                 timestep,
@@ -306,6 +309,8 @@ class Pulsar():
                 return_dict=False,
             )[0]
 
+            latent_model_input_1 = torch.cat([latents_1] * 2) if pipe.do_classifier_free_guidance else latents_1
+            latent_model_input_1 = pipe.scheduler.scale_model_input(latent_model_input_1, timestep)
             noise_pred_1 = pipe.unet(
                 latent_model_input_1,
                 timestep,
@@ -316,19 +321,22 @@ class Pulsar():
                 return_dict=False,
             )[0]
 
-            # perform guidance
+                    # perform guidance
             if pipe.do_classifier_free_guidance:
                 noise_pred_uncond_0, noise_pred_text_0 = noise_pred_0.chunk(2)
                 noise_pred_0 = noise_pred_uncond_0 + pipe.guidance_scale * (noise_pred_text_0 - noise_pred_uncond_0)
                 noise_pred_uncond_1, noise_pred_text_1 = noise_pred_1.chunk(2)
                 noise_pred_1 = noise_pred_uncond_1 + pipe.guidance_scale * (noise_pred_text_1 - noise_pred_uncond_1)
 
+                    # sample final latents (deterministic)
             latents_0 = pipe.scheduler.step(noise_pred_0, timestep, latents_0, **extra_step_kwargs_s, return_dict=False)[0]
             latents_1 = pipe.scheduler.step(noise_pred_1, timestep, latents_1, **extra_step_kwargs_s, return_dict=False)[0]
             
+            # We will do the VAE step manually, so exit callback with anything
             callback_kwargs["latents"] = torch.zeros_like(latents)
             return callback_kwargs
         
+        # Conduct pipeline
         _ = self.pipe(
             self.prompt,
             num_inference_steps=timesteps,
@@ -337,17 +345,21 @@ class Pulsar():
             callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
         ).images[0]
 
-        # print(f"**type of latents_0 is {type(latents_0)}")
-
+        # VAE decode + postprocessing
         img_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
-        img_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
-
         img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pil")[0]
+        img_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
         img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil")[0]
 
+        # Save optionally
         if self.save_images: img_0.save("experiment_data/images/decode_latent_0.png")
         if self.save_images: img_1.save("experiment_data/images/decode_latent_1.png")
 
+        ######################
+        # Online phase       #
+        ######################
+        
+        # Undo VAE (via VAE encode)
         def pil_to_latent(image, sample_mode="sample"):
             image = transforms.functional.pil_to_tensor(image).to(torch.float16).to(self.device)
             image = torch.unsqueeze(image, 0)
@@ -365,29 +377,21 @@ class Pulsar():
         
         assert latents.shape == latents_0.shape == latents_1.shape
 
+            # debugging
         print(latents[0, 0, :3, :3])
         print(latents_0[0, 0, :3, :3])
         print(latents_1[0, 0, :3, :3])
 
-        sz = self.pipe.unet.config.sample_size
-        m_dec = np.zeros((sz, sz), dtype=int)
-        for i in range(sz):
-            for j in range(sz):
-                n_0 = torch.norm(latents[:, :, i, j] - latents_0[:, :, i, j])
-                n_1 = torch.norm(latents[:, :, i, j] - latents_1[:, :, i, j])
-                if n_0 > n_1:
-                    m_dec[i][j] = 1
-        if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
-        m_dec = m_dec.flatten()
-        m = ecc.ecc_recover(m_dec, rate)
+        m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, rate, verbose)
         return m
 
-
-    def decode_pixel(self, img, verbose=False):
+    def _decode_pixel(self, img, verbose=False):
 
         ######################
         # Offline phase      #
         ######################
+
+        # Synchronize encode/decode settings
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
@@ -410,10 +414,8 @@ class Pulsar():
             samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
             if verbose and ((i + 1) % 5 == 0):
                 utils.display_sample(samp, i + 1)
-        # print("OFFLINE SAMPLE:", samp[:, :, :5, :5], sep="\n")
 
-        # rate = estimate_rate(samp, k)
-        rate = 0
+        rate = estimate_rate(self, samp)
 
         t = scheduler.timesteps[-2]   # penultimate step
         residual = model(samp, t).sample
@@ -429,16 +431,13 @@ class Pulsar():
         ######################
         # Online phase       #
         ######################
-        sz = model.config.sample_size
-        m_dec = np.zeros((sz, sz), dtype=int)
-        for i in range(sz):
-            for j in range(sz):
-                # print(img[:, :, i, j] - img_0[:, :, i, j])
-                n_0 = torch.norm(img[:, :, i, j] - img_0[:, :, i, j])
-                n_1 = torch.norm(img[:, :, i, j] - img_1[:, :, i, j])
-                if n_0 > n_1:
-                    m_dec[i][j] = 1
+        m = self._decode_message_from_image_diffs(img, img_0, img_1, rate, verbose)
+        return m
+    
+    def _decode_message_from_image_diffs(self, img, img_0, img_1, rate, verbose=False):
+        diffs_0 = torch.norm(img - img_0, dim=(0, 1))
+        diffs_1 = torch.norm(img - img_1, dim=(0, 1))
+        m_dec = torch.where(diffs_0 < diffs_1, 0, 1).cpu().detach().numpy().astype(int)
         if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
         m_dec = m_dec.flatten()
-        m = ecc.ecc_recover(m_dec, rate)
-        return m
+        return ecc.ecc_recover(m_dec, rate)

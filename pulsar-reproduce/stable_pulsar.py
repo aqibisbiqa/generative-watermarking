@@ -18,8 +18,10 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 print("### defining methods ###")
 
 def run_experiment(iters=1):
+    verbose = False
     accs = []
-    for i in range(iters):
+    i = 0
+    while i < iters:
         print("#"*75)
         # m_sz = (model.config.sample_size, model.config.sample_size)
         img_sz = pipe.unet.config.sample_size
@@ -36,14 +38,15 @@ def run_experiment(iters=1):
         prompt = "Portrait photo of a man with mustache."
         p = Pulsar(pipe, k, timesteps, prompt=prompt)
         print("ENCODING")
-        img = p.encode(m)
+        img = p.encode(m, verbose=verbose)
         print("DECODING")
-        out = p.decode(img)
-        print(f"length of m is {len(m)}")
-        print(f"length of out is {len(out)}")
+        out = p.decode(img, verbose=verbose)
+        print(f"length of m is {len(m)} bytes")
+        print(f"length of out is {len(out)} bytes")
         acc = utils.calc_acc(m, out)
         accs.append(acc)
         print(f"Run accuracy {acc}")
+        i += 1
     print("#"*75)
     print(f"Final Average Accuracy {np.mean(accs)}")
 

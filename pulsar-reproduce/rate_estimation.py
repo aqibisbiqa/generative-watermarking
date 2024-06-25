@@ -4,6 +4,7 @@ from ecc import get_code
 
 # @title Rate Estimation
 def estimate_rate(pulsar, samp):
+    if True: return 0
     # l, u are chosen based on Jois et al.
     l, u = 1, 100
     errs = calc_errors(pulsar, samp, l)     # `errs` is a list of pairs (pt, err_value)
