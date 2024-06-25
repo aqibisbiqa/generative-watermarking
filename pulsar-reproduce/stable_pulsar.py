@@ -18,20 +18,17 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 print("### defining methods ###")
 
 def run_experiment(iters=1):
+    if device != "cuda":
+        raise Exception("use gpu sir")
     verbose = False
     accs = []
     i = 0
     while i < iters:
         print("#"*75)
-        # m_sz = (model.config.sample_size, model.config.sample_size)
         img_sz = pipe.unet.config.sample_size
-        bytes_in = True
-        if bytes_in:
-            m_sz = (img_sz**2 // 512) * 25
-            m = np.random.randint(256, size=m_sz, dtype=np.uint8)
-        else:
-            m_sz = (img_sz**2 // 512) * 200
-            m = np.random.randint(2, size=m_sz)
+        # m_sz = (img_sz**2 // 512) * 25
+        m_sz = 2200
+        m = np.random.randint(256, size=m_sz, dtype=np.uint8)
         k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
         # k = (10, 11, 12)
         print(f"Iteration {i+1} using keys {k}")

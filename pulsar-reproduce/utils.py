@@ -31,18 +31,26 @@ def dbg_print(name, arr):
         print(f"{name:13s}: {str(len(arr)):5s} {arr}")
 
 def calc_acc(m, out):
+    min_len = min(len(m), len(out))
+    m = m[:min_len]
+    out = out[:min_len]
+    
     m = np.unpackbits(m)
     out = np.unpackbits(out)
     return len(np.where(m==out)[0]) / m.size
 
 def apply_op_to_chunks(arr: np.ndarray, chunk_size, op):
     l = len(arr)
-    arr.resize(
-        chunk_size * ((l - 1) // chunk_size + 1)
-    )
+    arr = np.resize(arr, chunk_size * ((l - 1) // chunk_size + 1))
     out = []
     for i in range(len(arr) // chunk_size):
         start = i * chunk_size
         chunk = arr[start:start+chunk_size].tolist()
         out.extend(op(chunk))
+    return np.array(out, dtype=np.uint8)
+
+def bitarray_to_int(bitlist):
+    out = 0
+    for bit in bitlist:
+        out = (out << 1) | bit
     return out

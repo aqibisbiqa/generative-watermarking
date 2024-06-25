@@ -208,7 +208,7 @@ class Pulsar():
     
     def _mix_samples_using_payload(self, payload, rate, samp_0, samp_1, verbose=False):
         m_ecc = ecc.ecc_encode(payload, rate)
-        m_ecc = np.reshape(m_ecc, samp_0[0, 0].shape)
+        m_ecc.resize(samp_0[0, 0].shape)
         if verbose: print("### Message BEFORE Transmission ###", m_ecc, "#"*35, sep="\n")
         m_ecc = torch.from_numpy(m_ecc).to(self.device)
         return torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])

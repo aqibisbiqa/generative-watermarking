@@ -1,11 +1,7 @@
-import torch
+import hamming_codec
+import numpy as np 
+import functools
 
-seed = 0
+arr = [0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1]
 
-g_0 = torch.manual_seed(seed)
-arr = torch.rand(size=(10, ), generator=g_0)
-print(arr)
-
-g_0 = torch.manual_seed(seed)
-arr = torch.rand(size=(10, ), generator=g_0)
-print(arr)
+# print("".join(str))
