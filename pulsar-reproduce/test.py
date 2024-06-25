@@ -1,9 +1,11 @@
-print("Hello world!")
-print([i for i in range(10)])
-
-# help('modules')
 import torch
-import numpy as np
 
-print(torch.cuda.is_available())
-torch.zeros(1).cuda()
+seed = 0
+
+g_0 = torch.manual_seed(seed)
+arr = torch.rand(size=(10, ), generator=g_0)
+print(arr)
+
+g_0 = torch.manual_seed(seed)
+arr = torch.rand(size=(10, ), generator=g_0)
+print(arr)

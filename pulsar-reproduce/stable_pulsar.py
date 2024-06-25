@@ -47,16 +47,21 @@ def run_experiment(iters=1):
     print("#"*75)
     print(f"Final Average Accuracy {np.mean(accs)}")
 
-print("### importing pipeline ###")
+
+print("### running experiments ###")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-use_stable = True
+use_stable = False
 
 if use_stable:
     from diffusers import StableDiffusionImg2ImgPipeline
     from diffusers import StableDiffusionPipeline
-
-    model_id_or_path = "runwayml/stable-diffusion-v1-5"
+    repos = [
+        "runwayml/stable-diffusion-v1-5",
+        "stabilityai/stable-diffusion-2-1-base",
+        "friedrichor/stable-diffusion-2-1-realistic",
+    ]
+    model_id_or_path = repos[1]
     pipe = StableDiffusionPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
     pipe = pipe.to(device)
 else:
@@ -66,7 +71,11 @@ else:
         "google/ddpm-church-256",
         "google/ddpm-bedroom-256",
         "google/ddpm-cat-256",
-        "google/ddpm-celebahq-256"
+        "google/ddpm-celebahq-256",
+        "dboshardy/ddim-butterflies-128",
+        "YanivWeiss123/sd-class-poke-64-new",
+        "lukasHoel/ddim-model-128-lego-diffuse-1000",
+        "krasnova/ddim_afhq_64",
     ]
     model_id_or_path = repos[0]
     pipe = DDIMPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
@@ -74,14 +83,5 @@ else:
 
 # timesteps = 3
 timesteps = 50
-
-
-print("### running experiments ###")
-
-# img = pipe(
-#     "A photo of a cat"
-# ).images[0]
-
-# img.save("sd3_hello_world-no-T5.png")
 
 run_experiment(1)

@@ -7,9 +7,9 @@ import tqdm
 import torchvision.transforms as transforms
 
 # own files
-from ecc import *
-from rate_estimation import *
-from utils import *
+import ecc
+import rate_estimation
+import utils
 
 class Pulsar():
     def __init__(self, pipe, keys=(10, 11, 12), timesteps=50, debug=False, save_images=True, prompt="A photo of a cat"):
@@ -100,7 +100,7 @@ class Pulsar():
             rate = 0
             # print(pipe.unet.config)
             sz = pipe.unet.config.sample_size
-            m_ecc = ecc_encode(m, rate)
+            m_ecc = ecc.ecc_encode(m, rate)
             m_ecc = np.reshape(m_ecc, (sz, sz))
             if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
             for i in range(sz):
@@ -173,7 +173,7 @@ class Pulsar():
             residual = model(samp, t).sample
             samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
             if verbose and ((timesteps-3-i) % 5 == 0):
-                display_sample(samp, i + 1)
+                utils.display_sample(samp, i + 1)
         # print("OFFLINE SAMPLE:", samp[:, :, :5, :5], sep="\n")
 
         # rate = estimate_rate(samp, self.keys)
@@ -183,7 +183,7 @@ class Pulsar():
         # Online phase       #
         ######################
         sz = model.config.sample_size
-        m_ecc = ecc_encode(m, rate)
+        m_ecc = ecc.ecc_encode(m, rate)
         m_ecc = np.reshape(m_ecc, (sz, sz))
         if verbose: print("Message BEFORE Transmission:", m_ecc, sep="\n")
 
@@ -193,7 +193,7 @@ class Pulsar():
         # variance = scheduler._get_variance(t, prev_timestep)
         # print(f"t: {t}\nPREVIOUS TIMESTEP: {prev_timestep}\nVARIANCE: {variance}")
 
-        residual = get_residual(model, samp, t)
+        residual = model(samp, t).sample
         # torch.manual_seed(k_0) # is this necessary?
         samp_0 = scheduler.step(residual, t, samp, generator=g_k_0, eta=eta).prev_sample
         # print("\n\n SAMPLE 0:", samp_0[:, :, :3, :3], sep="\n")
@@ -212,7 +212,7 @@ class Pulsar():
         # print("\n\n PEN SAMPLE:", samp[:, :, :3, :3], sep="\n")
 
         t = scheduler.timesteps[-1]  # last timestep
-        residual = get_residual(model, samp, t)
+        residual = model(samp, t).sample
         img = scheduler.step(residual, t, samp).prev_sample
         # print("\n\n FINAL IMAGE:", img[:, :, :3, :3], sep="\n")
         return img
@@ -234,17 +234,16 @@ class Pulsar():
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
 
-        global latents_0
-        global latents_1
-        rate = None
-
         # For latent models, use callback to get latents prior to vae decode
         def dec_callback(pipe, step_index, timestep, callback_kwargs):
             # interrupt denoising loop with two steps left
             # stop_idx = pipe.num_timesteps - 2
             latents = callback_kwargs["latents"]
+            
+            # Use globals so they can be references outside this callback
             global latents_0
             global latents_1
+            global rate
             stop_idx = pipe.num_timesteps - 3
             if step_index != stop_idx: return callback_kwargs
             pipe._interrupt = True
@@ -380,7 +379,7 @@ class Pulsar():
                     m_dec[i][j] = 1
         if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
         m_dec = m_dec.flatten()
-        m = ecc_recover(m_dec, rate)
+        m = ecc.ecc_recover(m_dec, rate)
         return m
 
 
@@ -407,23 +406,23 @@ class Pulsar():
         samp = torch.randn(image_shape, generator=g_k_s, dtype=model.dtype).to(device)
 
         for i, t in enumerate(tqdm.tqdm(scheduler.timesteps[:-2])):
-            residual = get_residual(model, samp, t)
+            residual = model(samp, t).sample
             samp = scheduler.step(residual, t, samp, generator=g_k_s, eta=eta).prev_sample
             if verbose and ((i + 1) % 5 == 0):
-                display_sample(samp, i + 1)
+                utils.display_sample(samp, i + 1)
         # print("OFFLINE SAMPLE:", samp[:, :, :5, :5], sep="\n")
 
         # rate = estimate_rate(samp, k)
         rate = 0
 
         t = scheduler.timesteps[-2]   # penultimate step
-        residual = get_residual(model, samp, t)
+        residual = model(samp, t).sample
         samp_0 = scheduler.step(residual, t, samp, generator=g_k_0, eta=eta).prev_sample
         samp_1 = scheduler.step(residual, t, samp, generator=g_k_1, eta=eta).prev_sample
 
         t = scheduler.timesteps[-1]   # last step
-        residual_0 = get_residual(model, samp_0, t)
-        residual_1 = get_residual(model, samp_1, t)
+        residual_0 = model(samp_0, t).sample
+        residual_1 = model(samp_1, t).sample
         img_0 = scheduler.step(residual_0, t, samp_0, eta=eta).prev_sample
         img_1 = scheduler.step(residual_1, t, samp_1, eta=eta).prev_sample
 
@@ -441,5 +440,5 @@ class Pulsar():
                     m_dec[i][j] = 1
         if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
         m_dec = m_dec.flatten()
-        m = ecc_recover(m_dec, rate)
+        m = ecc.ecc_recover(m_dec, rate)
         return m

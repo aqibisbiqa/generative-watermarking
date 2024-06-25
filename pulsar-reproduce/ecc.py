@@ -29,31 +29,40 @@ def get_code(err_rate):
     #"""
     return outer, inner
 
-# Turns bitstring into encoded bytestring
+# Encodes BYTEarray --> BITarray
 def ecc_encode(pay_bytes, rate=None):
     outer, inner = get_code(rate)
 
-    # (TODO) encode payload with INNER code
+    # (TODO) INNER code ENCODES payload
     
 
-    # encode payload with OUTER code
-    msg_bytes = utils.apply_op_to_chunks(pay_bytes, outer.payload_length, outer.encode)
+    # OUTER code ENCODES payload
+    msg_bytes = utils.apply_op_to_chunks(
+        arr=pay_bytes, 
+        chunk_size=outer.payload_length, 
+        op=outer.encode
+    )
     
     # convert bytes -> bits
     msg_bits = np.unpackbits(np.array(msg_bytes, dtype=np.uint8))
 
     return msg_bits
 
+# Decodes BITarray --> BYTEarray
 def ecc_recover(msg_bits, rate=None):
     outer, inner = get_code(rate)
 
     # convert bits -> bytes
     msg_bytes = np.packbits(msg_bits)
 
-    # decode message with OUTER code
-    pay_bytes = utils.apply_op_to_chunks(msg_bytes, outer.message_length, outer.decode)
+    # OUTER code DECODES message
+    pay_bytes = utils.apply_op_to_chunks(
+        arr=msg_bytes, 
+        chunk_size=outer.message_length, 
+        op=outer.decode
+    )
     
-    # (TODO) decode message with INNER code
+    # (TODO) INNER code DECODES message
 
 
     # ensure output is array of bytes

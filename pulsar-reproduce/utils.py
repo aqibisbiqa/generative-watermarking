@@ -20,10 +20,10 @@ def display_sample(sample, i):
     display(f"Image at step {i}")
     display(image_pil)
 
-def get_residual(model, sample, t):
-    with torch.no_grad():
-        residual = model(sample, t).sample
-    return residual
+# def get_residual(model, sample, t):
+#     with torch.no_grad():
+#         residual = model(sample, t).sample
+#     return residual
 
 def dbg_print(name, arr):
     debug = True
