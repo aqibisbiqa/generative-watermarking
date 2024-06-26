@@ -5,10 +5,12 @@ import functools
 import math
 from coding.grs import GRSCode
 from coding.hamming import HammingCode
+from coding.brm import BRMCode
 
 # @title ECC
 
 def get_code(err_rate):
+    err_rate = 100
     if err_rate < 0.05:
         # outer = GeneralizedReedSolomonCode(GF(256)[:255], 200)
         # inner = HammingCode(GF(2), 3)
@@ -28,22 +30,23 @@ def get_code(err_rate):
         # inner = BinaryReedMullerCode(1, 5)
         outer, inner = (
             GRSCode(field_size=256, msg_len=512, pay_len=200),
-            HammingCode(field_size=2, msg_len=12, pay_len=8)
+            BRMCode(r=1, m=5)
         )
     elif err_rate < 0.30:
         # outer = GeneralizedReedSolomonCode(GF(256)[:255], 200)
         # inner = BinaryReedMullerCode(1, 7)
         outer, inner = (
             GRSCode(field_size=256, msg_len=512, pay_len=200),
-            HammingCode(field_size=2, msg_len=12, pay_len=8)
+            BRMCode(r=1, m=7)
         )
     else:
         # outer = GeneralizedReedSolomonCode(GF(256)[:255], 100)
         # inner = BinaryReedMullerCode(1, 7)
         outer, inner = (
             GRSCode(field_size=256, msg_len=512, pay_len=200),
-            HammingCode(field_size=2, msg_len=12, pay_len=8)
+            BRMCode(r=1, m=7)
         )
+    # if True: return None, None
     return outer, inner
 
 # Encodes BYTEarray --> BITarray

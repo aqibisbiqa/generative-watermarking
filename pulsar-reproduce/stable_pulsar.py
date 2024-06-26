@@ -28,7 +28,7 @@ def run_experiment(iters=1):
             print("#"*75)
             img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
-            m_sz = 2200
+            m_sz = 1000
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
             k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
             # k = (10, 11, 12)
@@ -63,30 +63,67 @@ if use_stable:
     from diffusers import StableDiffusionImg2ImgPipeline
     from diffusers import StableDiffusionPipeline
     repos = [
-        "runwayml/stable-diffusion-v1-5",
-        "stabilityai/stable-diffusion-2-1-base",
-        "friedrichor/stable-diffusion-2-1-realistic",
+        (StableDiffusionPipeline, "runwayml/stable-diffusion-v1-5"),
+        (StableDiffusionPipeline, "stabilityai/stable-diffusion-2-1-base"),
+        (StableDiffusionPipeline, "friedrichor/stable-diffusion-2-1-realistic"),
     ]
-    model_id_or_path = repos[2]
-    pipe = StableDiffusionPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
+    pipeline_cls, model_id_or_path = repos[0]
+    pipe = pipeline_cls.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
     pipe = pipe.to(device)
 else:
+    from diffusers import DDPMPipeline
     from diffusers import DDIMPipeline
+    from diffusers import PNDMPipeline
 
     repos = [
-        "google/ddpm-church-256",
-        "google/ddpm-bedroom-256",
-        "google/ddpm-cat-256",
-        "google/ddpm-celebahq-256",
-        "dboshardy/ddim-butterflies-128",
-        "lukasHoel/ddim-model-128-lego-diffuse-1000",
+        (DDPMPipeline, "google/ddpm-church-256"),
+        (DDPMPipeline, "google/ddpm-bedroom-256"),
+        (DDPMPipeline, "google/ddpm-cat-256"),
+        (DDIMPipeline, "google/ddpm-celebahq-256"),
+
+        (DDIMPipeline, "dboshardy/ddim-butterflies-128"),
+        (DDIMPipeline, "lukasHoel/ddim-model-128-lego-diffuse-1000"),
     ]
-    model_id_or_path = repos[0]
-    pipe = DDIMPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
+    pipeline_cls, model_id_or_path = repos[3]
+    # pipe = pipeline_cls.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
+    pipe = pipeline_cls.from_pretrained(model_id_or_path)
     pipe = pipe.to(device)
 
 # timesteps = 3
 timesteps = 50
 
-# run_experiment(1)
-run_experiment(20)
+iters = 5
+
+# run_experiment(iters)
+
+
+torch.manual_seed(0)
+image = pipe()["images"]
+image[0].save("experiment_data/images/encode_pixel.png")
+
+
+torch.manual_seed(0)
+model = pipe.unet
+scheduler = pipe.scheduler
+
+noisy_sample = torch.randn(
+    1, 
+    model.config.in_channels, 
+    model.config.sample_size, 
+    model.config.sample_size,
+).to(device)
+
+sample = noisy_sample
+
+scheduler.set_timesteps(timesteps)
+
+for i, t in enumerate(tqdm.tqdm(scheduler.timesteps)):
+    # 1. predict noise residual
+    with torch.no_grad():
+        residual = model(sample, t).sample
+
+    # 2. compute less noisy image and set x_t -> x_t-1
+    sample = scheduler.step(residual, t, sample, eta=0).prev_sample
+
+sample = utils.process_pixel(sample)
+sample[0].save("experiment_data/images/experiment.png")

@@ -1,11 +1,6 @@
-# import GRS code
-"""
-!git clone https://github.com/raeudigerRaeffi/generalizedReedSolomon.git
-!python3 -m pip install galois
-!pip install pathos
-"""
-import numpy as np
 from . import generalizedReedSolomon
+import numpy as np
+from typing import Union
 
 class GRSCode():
     def __init__(self, field_size, msg_len, pay_len,

@@ -1,6 +1,7 @@
 import hamming_codec
 import numpy as np
 import utils
+from typing import Union
 
 class HammingCode():
     def __init__(self, field_size, msg_len, pay_len, order=3):
@@ -9,7 +10,7 @@ class HammingCode():
         self.pay_len = pay_len
         self.order = order
 
-    def encode(self, payload):
+    def encode(self, payload: Union[list, np.ndarray, str, int, np.uint8]):
         if type(payload) in [np.ndarray, list]:
             assert len(payload) == self.pay_len
             payload = utils.bitarray_to_int(payload)
