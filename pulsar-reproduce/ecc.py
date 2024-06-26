@@ -59,7 +59,7 @@ def ecc_encode(pay_bytes, rate=None):
             op=outer.encode
         )
 
-    # (TODO) INNER code ENCODES payload (bytes -> bytes)
+    # INNER code ENCODES payload (bytes -> bytes)
     if inner is not None:
         enc = np.concatenate([inner.encode(byte) for byte in enc])
         enc = np.packbits(enc) # allows for cleaner code
@@ -74,7 +74,7 @@ def ecc_recover(msg_bits, rate=None):
     dec = msg_bits
     outer, inner = get_code(rate)
 
-    # (TODO) INNER code DECODES message (bits -> bits)
+    # INNER code DECODES message (bits -> bits)
     if inner is not None:
         dec = utils.apply_op_to_chunks(
             arr=dec, 

@@ -29,6 +29,7 @@ class Pulsar():
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.save_images = save_images
+        self.debug = debug
 
     ################################################################################################################################
     # ENCODING METHODS
@@ -204,6 +205,7 @@ class Pulsar():
         t = scheduler.timesteps[-1]  ### LAST STEP ###
         residual = model(samp, t).sample
         img = scheduler.step(residual, t, samp).prev_sample
+        if self.save_images: transforms.functional.to_pil_image(img[0]).save("experiment_data/images/encode_pixel.png")
         return img
     
     def _mix_samples_using_payload(self, payload, rate, samp_0, samp_1, verbose=False):
@@ -378,9 +380,10 @@ class Pulsar():
         assert latents.shape == latents_0.shape == latents_1.shape
 
             # debugging
-        print(latents[0, 0, :3, :3])
-        print(latents_0[0, 0, :3, :3])
-        print(latents_1[0, 0, :3, :3])
+        if self.debug or True:
+            print(latents[0, 0, :3, :3])
+            print(latents_0[0, 0, :3, :3])
+            print(latents_1[0, 0, :3, :3])
 
         m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, rate, verbose)
         return m
@@ -428,6 +431,9 @@ class Pulsar():
         img_0 = scheduler.step(residual_0, t, samp_0, eta=eta).prev_sample
         img_1 = scheduler.step(residual_1, t, samp_1, eta=eta).prev_sample
 
+        if self.save_images: transforms.functional.to_pil_image(img_0[0]).save("experiment_data/images/decode_pixel_0.png")
+        if self.save_images: transforms.functional.to_pil_image(img_1[0]).save("experiment_data/images/decode_pixel_1.png")
+
         ######################
         # Online phase       #
         ######################
@@ -437,6 +443,12 @@ class Pulsar():
     def _decode_message_from_image_diffs(self, img, img_0, img_1, rate, verbose=False):
         diffs_0 = torch.norm(img - img_0, dim=(0, 1))
         diffs_1 = torch.norm(img - img_1, dim=(0, 1))
+
+        if self.debug:
+            show = 5
+            print(diffs_0[:show, :show])
+            print(diffs_1[:show, :show])
+
         m_dec = torch.where(diffs_0 < diffs_1, 0, 1).cpu().detach().numpy().astype(int)
         if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
         m_dec = m_dec.flatten()

@@ -37,6 +37,9 @@ def calc_acc(m, out):
     
     m = np.unpackbits(m)
     out = np.unpackbits(out)
+
+    print(m[:10])
+    print(out[:10])
     return len(np.where(m==out)[0]) / m.size
 
 def apply_op_to_chunks(arr: np.ndarray, chunk_size, op):

@@ -24,26 +24,32 @@ def run_experiment(iters=1):
     accs = []
     i = 0
     while i < iters:
-        print("#"*75)
-        img_sz = pipe.unet.config.sample_size
-        # m_sz = (img_sz**2 // 512) * 25
-        m_sz = 2200
-        m = np.random.randint(256, size=m_sz, dtype=np.uint8)
-        k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
-        # k = (10, 11, 12)
-        print(f"Iteration {i+1} using keys {k}")
-        prompt = "Portrait photo of a man with mustache."
-        p = Pulsar(pipe, k, timesteps, prompt=prompt)
-        print("ENCODING")
-        img = p.encode(m, verbose=verbose)
-        print("DECODING")
-        out = p.decode(img, verbose=verbose)
-        print(f"length of m is {len(m)} bytes")
-        print(f"length of out is {len(out)} bytes")
-        acc = utils.calc_acc(m, out)
-        accs.append(acc)
-        print(f"Run accuracy {acc}")
-        i += 1
+        try:
+            print("#"*75)
+            img_sz = pipe.unet.config.sample_size
+            # m_sz = (img_sz**2 // 512) * 25
+            m_sz = 2200
+            m = np.random.randint(256, size=m_sz, dtype=np.uint8)
+            k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
+            # k = (10, 11, 12)
+            print(f"Iteration {i+1} using keys {k}")
+            prompt = "Portrait photo of a man with mustache."
+            p = Pulsar(pipe, k, timesteps, prompt=prompt)
+            print("ENCODING")
+            img = p.encode(m, verbose=verbose)
+            print("DECODING")
+            out = p.decode(img, verbose=verbose)
+        except ValueError:
+            print("stupid broadcast error, retrying")
+        except ZeroDivisionError:
+            print("stupid galois field error, retrying")
+        else:
+            print(f"length of m is {len(m)} bytes")
+            print(f"length of out is {len(out)} bytes")
+            acc = utils.calc_acc(m, out)
+            accs.append(acc)
+            print(f"Run accuracy {acc}")
+            i += 1
     print("#"*75)
     print(f"Final Average Accuracy {np.mean(accs)}")
 
@@ -61,7 +67,7 @@ if use_stable:
         "stabilityai/stable-diffusion-2-1-base",
         "friedrichor/stable-diffusion-2-1-realistic",
     ]
-    model_id_or_path = repos[1]
+    model_id_or_path = repos[2]
     pipe = StableDiffusionPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
     pipe = pipe.to(device)
 else:
@@ -73,9 +79,7 @@ else:
         "google/ddpm-cat-256",
         "google/ddpm-celebahq-256",
         "dboshardy/ddim-butterflies-128",
-        "YanivWeiss123/sd-class-poke-64-new",
         "lukasHoel/ddim-model-128-lego-diffuse-1000",
-        "krasnova/ddim_afhq_64",
     ]
     model_id_or_path = repos[0]
     pipe = DDIMPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
@@ -84,4 +88,5 @@ else:
 # timesteps = 3
 timesteps = 50
 
-run_experiment(1)
+# run_experiment(1)
+run_experiment(20)
