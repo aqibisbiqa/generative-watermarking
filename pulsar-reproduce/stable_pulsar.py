@@ -1,32 +1,39 @@
-import torch
-import numpy as np
-import random
-import copy
-import functools
-import tqdm
+from sys import argv
+from argparser import argument_parser
 
 # own files
-import utils
-from pulsar_methods import Pulsar
 
-print("### importing warnings ###")
+def main(args):
 
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", category=FutureWarning)
+    ### Imports ###
+    import torch
+    import numpy as np
+    import utils
 
-print("### defining methods ###")
+    if args.ignore_warnings:
+        print("ignoring warnings")
+        import warnings
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        warnings.filterwarnings("ignore", category=FutureWarning)
+    from pulsar_methods import Pulsar
+    from supported_models import get_pipeline
 
-def run_experiment(iters=1):
+
+    ### Experiment Setup ###
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     if device != "cuda":
         raise Exception("use gpu sir")
-    verbose = False
-    accs = []
-    i = 0
-    while i < iters:
+
+    pipeline_cls, model_id_or_path = get_pipeline(args.model)
+    pipe = pipeline_cls.from_pretrained(model_id_or_path)
+    pipe = pipe.to(device)
+    
+    ### Experiment Loop ###
+    accs, i = [], 0
+    while i < args.iters:
         try:
             print("#"*75)
-            img_sz = pipe.unet.config.sample_size
+            # img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
             m_sz = 1000
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
@@ -34,11 +41,11 @@ def run_experiment(iters=1):
             # k = (10, 11, 12)
             print(f"Iteration {i+1} using keys {k}")
             prompt = "Portrait photo of a man with mustache."
-            p = Pulsar(pipe, k, timesteps, prompt=prompt)
+            p = Pulsar(pipe, k, args.timesteps, prompt=prompt)
             print("ENCODING")
-            img = p.encode(m, verbose=verbose)
+            img = p.encode(m, verbose=args.verbose)
             print("DECODING")
-            out = p.decode(img, verbose=verbose)
+            out = p.decode(img, verbose=args.verbose)
         except ValueError:
             print("stupid broadcast error, retrying")
         except ZeroDivisionError:
@@ -50,48 +57,16 @@ def run_experiment(iters=1):
             accs.append(acc)
             print(f"Run accuracy {acc}")
             i += 1
+    
+    ### Print Output ###
     print("#"*75)
     print(f"Final Average Accuracy {np.mean(accs)}")
+    return accs
 
-
-print("### running experiments ###")
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-use_stable = True
-
-if use_stable:
-    from diffusers import StableDiffusionImg2ImgPipeline
-    from diffusers import StableDiffusionPipeline
-    repos = [
-        (StableDiffusionPipeline, "runwayml/stable-diffusion-v1-5"),
-        (StableDiffusionPipeline, "stabilityai/stable-diffusion-2-1-base"),
-        (StableDiffusionPipeline, "friedrichor/stable-diffusion-2-1-realistic"),
-    ]
-    pipeline_cls, model_id_or_path = repos[2]
-    pipe = pipeline_cls.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
-    pipe = pipe.to(device)
-else:
-    from diffusers import DDPMPipeline
-    from diffusers import DDIMPipeline
-    from diffusers import PNDMPipeline
-
-    repos = [
-        (DDIMPipeline, "google/ddpm-church-256"),
-        (DDIMPipeline, "google/ddpm-bedroom-256"),
-        (DDIMPipeline, "google/ddpm-cat-256"),
-        (DDIMPipeline, "google/ddpm-celebahq-256"),
-
-        (DDIMPipeline, "dboshardy/ddim-butterflies-128"),
-        (DDIMPipeline, "lukasHoel/ddim-model-128-lego-diffuse-1000"),
-    ]
-    pipeline_cls, model_id_or_path = repos[5]
-    # pipe = pipeline_cls.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
-    pipe = pipeline_cls.from_pretrained(model_id_or_path)
-    pipe = pipe.to(device)
-
-# timesteps = 3
-timesteps = 50
-
-iters = 10
-
-run_experiment(iters)
+if __name__ == '__main__':
+    _args = argument_parser().parse_args()
+    accs = main(_args)
+    # run_filename = f"./logging/results.txt"
+    # append results per layer
+        # with open(filename, 'a') as f:
+        #     f.write(_net_class+' '+str(lr)+' '+str(h)+' '+str(l)+' '+str(comb_layers)+':'+line+'\n')

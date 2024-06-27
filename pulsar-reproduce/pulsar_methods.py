@@ -150,7 +150,7 @@ class Pulsar():
         ).images[0]
 
         # Save optionally
-        if self.save_images: img.save("experiment_data/images/encode_latent.png")
+        if self.save_images: img.save("logging/images/encode_latent.png")
         
         return img
 
@@ -207,7 +207,7 @@ class Pulsar():
         img = scheduler.step(residual, t, samp).prev_sample
 
         # Optionally save image
-        if self.save_images: utils.process_pixel(img)[0].save("experiment_data/images/encode_pixel.png")
+        if self.save_images: utils.process_pixel(img)[0].save("logging/images/encode_pixel.png")
         
         return img
     
@@ -357,8 +357,8 @@ class Pulsar():
         img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil")[0]
 
         # Save optionally
-        if self.save_images: img_0.save("experiment_data/images/decode_latent_0.png")
-        if self.save_images: img_1.save("experiment_data/images/decode_latent_1.png")
+        if self.save_images: img_0.save("logging/images/decode_latent_0.png")
+        if self.save_images: img_1.save("logging/images/decode_latent_1.png")
 
         ######################
         # Online phase       #
@@ -435,8 +435,8 @@ class Pulsar():
         img_1 = scheduler.step(residual_1, t, samp_1, eta=eta).prev_sample
 
         # Optionally save images
-        if self.save_images: utils.process_pixel(img_0)[0].save("experiment_data/images/decode_pixel_0.png")
-        if self.save_images: utils.process_pixel(img_1)[0].save("experiment_data/images/decode_pixel_1.png")
+        if self.save_images: utils.process_pixel(img_0)[0].save("logging/images/decode_pixel_0.png")
+        if self.save_images: utils.process_pixel(img_1)[0].save("logging/images/decode_pixel_1.png")
 
         ######################
         # Online phase       #
