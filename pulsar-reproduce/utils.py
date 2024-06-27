@@ -10,7 +10,6 @@ def draw_rand(model):
         1, model.config.in_channels, model.config.sample_size, model.config.sample_size
     )
 
-
 def display_sample(sample, i):
     image_processed = sample.cpu().permute(0, 2, 3, 1)
     image_processed = (image_processed + 1.0) * 127.5
@@ -55,6 +54,11 @@ def numpy_to_pil(images):
         pil_images = [Image.fromarray(image) for image in images]
 
     return pil_images
+
+def ensure_batched(t: torch.Tensor):
+    if t.ndim == 3:
+        t = torch.unsqueeze(t, 0)
+    return t
 
 def dbg_print(name, arr):
     debug = True

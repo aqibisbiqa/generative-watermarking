@@ -57,7 +57,7 @@ def run_experiment(iters=1):
 print("### running experiments ###")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-use_stable = False
+use_stable = True
 
 if use_stable:
     from diffusers import StableDiffusionImg2ImgPipeline
@@ -67,7 +67,7 @@ if use_stable:
         (StableDiffusionPipeline, "stabilityai/stable-diffusion-2-1-base"),
         (StableDiffusionPipeline, "friedrichor/stable-diffusion-2-1-realistic"),
     ]
-    pipeline_cls, model_id_or_path = repos[0]
+    pipeline_cls, model_id_or_path = repos[2]
     pipe = pipeline_cls.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
     pipe = pipe.to(device)
 else:
@@ -76,15 +76,15 @@ else:
     from diffusers import PNDMPipeline
 
     repos = [
-        (DDPMPipeline, "google/ddpm-church-256"),
-        (DDPMPipeline, "google/ddpm-bedroom-256"),
-        (DDPMPipeline, "google/ddpm-cat-256"),
+        (DDIMPipeline, "google/ddpm-church-256"),
+        (DDIMPipeline, "google/ddpm-bedroom-256"),
+        (DDIMPipeline, "google/ddpm-cat-256"),
         (DDIMPipeline, "google/ddpm-celebahq-256"),
 
         (DDIMPipeline, "dboshardy/ddim-butterflies-128"),
         (DDIMPipeline, "lukasHoel/ddim-model-128-lego-diffuse-1000"),
     ]
-    pipeline_cls, model_id_or_path = repos[3]
+    pipeline_cls, model_id_or_path = repos[5]
     # pipe = pipeline_cls.from_pretrained(model_id_or_path, torch_dtype=torch.float16)
     pipe = pipeline_cls.from_pretrained(model_id_or_path)
     pipe = pipe.to(device)
@@ -92,38 +92,6 @@ else:
 # timesteps = 3
 timesteps = 50
 
-iters = 5
+iters = 10
 
-# run_experiment(iters)
-
-
-torch.manual_seed(0)
-image = pipe()["images"]
-image[0].save("experiment_data/images/encode_pixel.png")
-
-
-torch.manual_seed(0)
-model = pipe.unet
-scheduler = pipe.scheduler
-
-noisy_sample = torch.randn(
-    1, 
-    model.config.in_channels, 
-    model.config.sample_size, 
-    model.config.sample_size,
-).to(device)
-
-sample = noisy_sample
-
-scheduler.set_timesteps(timesteps)
-
-for i, t in enumerate(tqdm.tqdm(scheduler.timesteps)):
-    # 1. predict noise residual
-    with torch.no_grad():
-        residual = model(sample, t).sample
-
-    # 2. compute less noisy image and set x_t -> x_t-1
-    sample = scheduler.step(residual, t, sample, eta=0).prev_sample
-
-sample = utils.process_pixel(sample)
-sample[0].save("experiment_data/images/experiment.png")
+run_experiment(iters)

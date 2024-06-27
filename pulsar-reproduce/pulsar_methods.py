@@ -4,7 +4,7 @@ import random
 import copy
 import functools
 import tqdm
-import torchvision.transforms as transforms
+from torchvision.transforms.functional import pil_to_tensor
 
 # own files
 import ecc
@@ -205,7 +205,10 @@ class Pulsar():
         t = scheduler.timesteps[-1]  ### LAST STEP ###
         residual = model(samp, t).sample
         img = scheduler.step(residual, t, samp).prev_sample
-        if self.save_images: transforms.functional.to_pil_image(img[0]).save("experiment_data/images/encode_pixel.png")
+
+        # Optionally save image
+        if self.save_images: utils.process_pixel(img)[0].save("experiment_data/images/encode_pixel.png")
+        
         return img
     
     def _mix_samples_using_payload(self, payload, rate, samp_0, samp_1, verbose=False):
@@ -363,7 +366,7 @@ class Pulsar():
         
         # Undo VAE (via VAE encode)
         def pil_to_latent(image, sample_mode="sample"):
-            image = transforms.functional.pil_to_tensor(image).to(torch.float16).to(self.device)
+            image = pil_to_tensor(image).to(torch.float16).to(self.device)
             image = torch.unsqueeze(image, 0)
             if sample_mode == "sample":
                 img_to_latent = lambda image : self.pipe.vae.encode(image).latent_dist.sample(g_k_s) * self.pipe.vae.config.scaling_factor
@@ -431,13 +434,17 @@ class Pulsar():
         img_0 = scheduler.step(residual_0, t, samp_0, eta=eta).prev_sample
         img_1 = scheduler.step(residual_1, t, samp_1, eta=eta).prev_sample
 
-        if self.save_images: transforms.functional.to_pil_image(img_0[0]).save("experiment_data/images/decode_pixel_0.png")
-        if self.save_images: transforms.functional.to_pil_image(img_1[0]).save("experiment_data/images/decode_pixel_1.png")
+        # Optionally save images
+        if self.save_images: utils.process_pixel(img_0)[0].save("experiment_data/images/decode_pixel_0.png")
+        if self.save_images: utils.process_pixel(img_1)[0].save("experiment_data/images/decode_pixel_1.png")
 
         ######################
         # Online phase       #
         ######################
+
+        # Decoding
         m = self._decode_message_from_image_diffs(img, img_0, img_1, rate, verbose)
+
         return m
     
     def _decode_message_from_image_diffs(self, img, img_0, img_1, rate, verbose=False):
