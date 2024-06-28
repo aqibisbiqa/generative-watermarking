@@ -55,12 +55,12 @@ def main(args):
             print(f"length of out is {len(out)} bytes")
             acc = utils.calc_acc(m, out)
             accs.append(acc)
-            print(f"Run accuracy {acc}")
+            print(f"Run accuracy {acc:.2%}")
             i += 1
     
     ### Print Output ###
     print("#"*75)
-    print(f"Final Average Accuracy {np.mean(accs)}")
+    print(f"Final Average Accuracy {np.mean(accs):.2%}")
     return accs
 
 if __name__ == '__main__':

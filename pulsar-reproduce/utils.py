@@ -65,13 +65,14 @@ def dbg_print(name, arr):
     if debug:
         print(f"{name:13s}: {str(len(arr)):5s} {arr}")
 
-def calc_acc(m, out):
+def calc_acc(m: np.ndarray, out: np.ndarray, bitwise=True):
     min_len = min(len(m), len(out))
     m = m[:min_len]
     out = out[:min_len]
     
-    m = np.unpackbits(m)
-    out = np.unpackbits(out)
+    if bitwise:
+        m = np.unpackbits(m)
+        out = np.unpackbits(out)
 
     print(m[:10])
     print(out[:10])

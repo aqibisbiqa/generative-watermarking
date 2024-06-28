@@ -1,5 +1,6 @@
 from diffusers import StableDiffusionImg2ImgPipeline, StableDiffusionPipeline
 from diffusers import DDPMPipeline, DDIMPipeline, PNDMPipeline
+from diffusers import StableVideoDiffusionPipeline
 
 def get_pipeline(model):
 
@@ -9,6 +10,7 @@ def get_pipeline(model):
             "sd21": (StableDiffusionPipeline, "stabilityai/stable-diffusion-2-1-base"),
             "sd21real": (StableDiffusionPipeline, "friedrichor/stable-diffusion-2-1-realistic"),
         },
+
         "pixel": {
             "church": (DDIMPipeline, "google/ddpm-church-256"),
             "bedroom": (DDIMPipeline, "google/ddpm-bedroom-256"),
@@ -17,8 +19,12 @@ def get_pipeline(model):
 
             "butterflies": (DDIMPipeline, "dboshardy/ddim-butterflies-128"),
             "lego": (DDIMPipeline, "lukasHoel/ddim-model-128-lego-diffuse-1000"),
-        }
-        
+        },
+
+        "video": {
+            "svd": (StableVideoDiffusionPipeline, "stabilityai/stable-video-diffusion-img2vid"),
+            "svd-xt": (StableVideoDiffusionPipeline, "stabilityai/stable-video-diffusion-img2vid-xt"),
+        },
     }
 
     model_is_supported = False
