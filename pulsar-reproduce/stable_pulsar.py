@@ -15,6 +15,7 @@ def main(args):
         import warnings
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         warnings.filterwarnings("ignore", category=FutureWarning)
+    
     from pulsar_methods import Pulsar
     from supported_models import get_pipeline
 
@@ -24,8 +25,7 @@ def main(args):
     if device != "cuda":
         raise Exception("use gpu sir")
 
-    pipeline_cls, model_id_or_path = get_pipeline(args.model)
-    pipe = pipeline_cls.from_pretrained(model_id_or_path)
+    pipe = get_pipeline(args.model)
     pipe = pipe.to(device)
     
     ### Experiment Loop ###

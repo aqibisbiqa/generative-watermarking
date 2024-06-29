@@ -233,9 +233,7 @@ class Pulsar():
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
 
-        global latents_0
-        global latents_1
-        global rate
+        rate = None
 
         # For latent models, use callback to get latents prior to vae decode
         def dec_callback(pipe, step_index, timestep, callback_kwargs):
@@ -251,10 +249,10 @@ class Pulsar():
             # The T-2'th denoising step is done, we do the rest manually
             pipe._interrupt = True
 
-            # Use globals so they can be referenced outside this callback
-            global latents_0
-            global latents_1
-            global rate
+            # Make variables nonlocal so they can be referenced outside this callback
+            nonlocal latents_0
+            nonlocal latents_1
+            nonlocal rate
 
             # Extra kwargs :(
             # SD requires funky code to change generator, TODO: write PR to fix
