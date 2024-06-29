@@ -49,8 +49,11 @@ class Pulsar():
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
 
+        # Initialize nonlocals for later
+        latents = None
+
         # For latent models, use callback to interact with denoising loop
-        def enc_callback(pipe, step_index, timestep, callback_kwargs):
+        def _enc_callback(pipe, step_index, timestep, callback_kwargs):
             
             ##################
             # Offline Phase
@@ -62,6 +65,9 @@ class Pulsar():
 
             # The T-2'th denoising step is done, we do the rest manually
             pipe._interrupt = True
+
+            # Make variables nonlocal so they can be referenced outside this callback
+            nonlocal latents
 
             # Extra kwargs :(
                 # SD requires funky code to change generator, TODO: write PR to fix
@@ -136,21 +142,25 @@ class Pulsar():
                     # sample final latent (determinstic)
             latents = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_s, return_dict=False)[0]
             
-            # Exit callback by returning new latent w/ encoded message
+            # Exit callback by returning new latent w/ encoded latents
             callback_kwargs["latents"] = latents
             return callback_kwargs
         
-        # Generate stegoimage
-        img = self.pipe(
+        # Conduct pipeline
+        _ = self.pipe(
             self.prompt,
             num_inference_steps=timesteps,
             generator=g_k_s,
-            callback_on_step_end=enc_callback,
+            callback_on_step_end=_enc_callback,
             callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
         ).images[0]
 
+        # VAE decode
+        img = self.pipe.vae.decode(latents / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+
         # Save optionally
-        if self.save_images: img.save("logging/images/encode_latent.png")
+        if self.save_images: 
+            self.pipe.image_processor.postprocess(img, output_type="pil")[0].save("logging/images/encode_latent.png")
         
         return img
 
@@ -229,14 +239,19 @@ class Pulsar():
             return self._decode_pixel(img, verbose)
 
     def _decode_latent(self, img, verbose=False):
+        
+        # Synchronize settings
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
 
+        # Initialize nonlocals for later
+        latents_0 = None
+        latents_1 = None
         rate = None
 
         # For latent models, use callback to get latents prior to vae decode
-        def dec_callback(pipe, step_index, timestep, callback_kwargs):
+        def _dec_callback(pipe, step_index, timestep, callback_kwargs):
             
             ##################
             # Offline Phase
@@ -344,28 +359,27 @@ class Pulsar():
             self.prompt,
             num_inference_steps=timesteps,
             generator=g_k_s,
-            callback_on_step_end=dec_callback,
+            callback_on_step_end=_dec_callback,
             callback_on_step_end_tensor_inputs=["latents", "prompt_embeds"],
         ).images[0]
 
-        # VAE decode + postprocessing
+        # VAE decode
         img_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
-        img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pil")[0]
         img_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
-        img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil")[0]
 
         # Save optionally
-        if self.save_images: img_0.save("logging/images/decode_latent_0.png")
-        if self.save_images: img_1.save("logging/images/decode_latent_1.png")
+        if self.save_images:
+            self.pipe.image_processor.postprocess(img_0, output_type="pil")[0].save("logging/images/decode_latent_0.png")
+            self.pipe.image_processor.postprocess(img_1, output_type="pil")[0].save("logging/images/decode_latent_1.png")
 
         ######################
         # Online phase       #
         ######################
         
         # Undo VAE (via VAE encode)
-        def pil_to_latent(image, sample_mode="sample"):
-            image = pil_to_tensor(image).to(torch.float16).to(self.device)
-            image = torch.unsqueeze(image, 0)
+        def _invert_vae(image, sample_mode="sample"):
+            # image = pil_to_tensor(image).to(torch.float16).to(self.device)
+            # image = torch.unsqueeze(image, 0)
             if sample_mode == "sample":
                 img_to_latent = lambda image : self.pipe.vae.encode(image).latent_dist.sample(g_k_s) * self.pipe.vae.config.scaling_factor
             elif sample_mode == "mode":
@@ -374,17 +388,17 @@ class Pulsar():
                 img_to_latent = lambda image : self.pipe.vae.encode(image).latents * self.pipe.vae.config.scaling_factor
             return img_to_latent(image)
 
-        latents = pil_to_latent(img)
-        latents_0 = pil_to_latent(img_0)
-        latents_1 = pil_to_latent(img_1)
+        latents = _invert_vae(img)
+        latents_0 = _invert_vae(img_0)
+        latents_1 = _invert_vae(img_1)
         
         assert latents.shape == latents_0.shape == latents_1.shape
 
             # debugging
         if self.debug or True:
-            print(latents[0, 0, :3, :3])
-            print(latents_0[0, 0, :3, :3])
-            print(latents_1[0, 0, :3, :3])
+            print(latents[0, 0, 0, :10].numpy(force=True))
+            print(latents_0[0, 0, 0, :10].numpy(force=True))
+            print(latents_1[0, 0, 0, :10].numpy(force=True))
 
         m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, rate, verbose)
         return m
