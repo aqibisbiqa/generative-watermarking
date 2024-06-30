@@ -75,4 +75,6 @@ def process_and_generate_video(image_path, repo, num_videos):
 image_path = "logging/images/for_svd/input_sample.png"
 
 # Use a different seed for each video
-process_and_generate_video(image_path, repo, 1)
+# process_and_generate_video(image_path, repo, 1)
+
+torch.cuda.empty_cache()

@@ -19,7 +19,6 @@ def main(args):
     from pulsar_methods import Pulsar
     from supported_models import get_pipeline
 
-
     ### Experiment Setup ###
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device != "cuda":
@@ -31,7 +30,7 @@ def main(args):
     ### Experiment Loop ###
     accs, i = [], 0
     while i < args.iters:
-        try:
+        # try:
             print("#"*75)
             # img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
@@ -46,11 +45,11 @@ def main(args):
             img = p.encode(m, verbose=args.verbose)
             print("DECODING")
             out = p.decode(img, verbose=args.verbose)
-        except ValueError:
-            print("stupid broadcast error, retrying")
-        except ZeroDivisionError:
-            print("stupid galois field error, retrying")
-        else:
+        # except ValueError:
+        #     print("stupid broadcast error, retrying")
+        # except ZeroDivisionError:
+        #     print("stupid galois field error, retrying")
+        # else:
             print(f"length of m is {len(m)} bytes")
             print(f"length of out is {len(out)} bytes")
             acc = utils.calc_acc(m, out)
@@ -58,6 +57,7 @@ def main(args):
             print(f"Run accuracy {acc:.2%}")
             i += 1
     
+    torch.cuda.empty_cache()
     ### Print Output ###
     print("#"*75)
     print(f"Final Average Accuracy {np.mean(accs):.2%}")

@@ -1,5 +1,5 @@
 import torch
-from diffusers import DiffusionPipeline
+# from diffusers import DiffusionPipeline
 # from diffusers import StableDiffusionImg2ImgPipeline, StableDiffusionPipeline
 # from diffusers import DDPMPipeline, DDIMPipeline, PNDMPipeline
 # from diffusers import StableVideoDiffusionPipeline
@@ -17,10 +17,17 @@ def get_pipeline(model):
     if not model_is_supported:
         raise NotImplementedError(f"the {model} model is not yet supported")
 
-    if model_type in ["latent", "video"]:
-        pipe = DiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
-    elif model_type in ["pixel"]:
-        pipe = DiffusionPipeline.from_pretrained(repo)
+    print(f"Will load {model} model from {repo}")
+    match model_type:
+        case "pixel":
+            from diffusers import DDIMPipeline
+            pipe = DDIMPipeline.from_pretrained(repo)
+        case "latent":
+            from diffusers import StableDiffusionPipeline
+            pipe = StableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
+        case "video":
+            from diffusers import StableVideoDiffusionPipeline
+            pipe = StableVideoDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16, variant="fp16")
     
     return pipe
 
@@ -43,6 +50,6 @@ models_by_type = {
 
     "video": {
         "svd": "stabilityai/stable-video-diffusion-img2vid",
-        "svd-xt": "stabilityai/stable-video-diffusion-img2vid-xt",
+        "svdxt": "stabilityai/stable-video-diffusion-img2vid-xt",
     },
 }
