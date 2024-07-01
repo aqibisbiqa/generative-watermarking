@@ -50,28 +50,10 @@ class Pulsar():
     def _encode_video(self, m: str, verbose=False):
 
         # Synchronize settings
-        s_churn = 1.0
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
-
-        # Initialize nonlocals for later
-        latents = None
-
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-
-        ##
-        image = None
-        ##
-
+        
+        s_churn = 1.0
         height = 576
         width = 1024
         num_frames = self.pipe.unet.config.num_frames
@@ -82,56 +64,9 @@ class Pulsar():
         num_videos_per_prompt = 1
         batch_size = 1
 
-        print(dir(self.pipe))
-        
-        image_embeddings = self.pipe._encode_image(image, self.device, num_videos_per_prompt=1, do_classifier_free_guidance=self.pipe.do_classifier_free_guidance())
-
-        fps = fps - 1
-
-        # 4. Encode input image using VAE
-        image = self.pipe.video_processor.preprocess(image, height=height, width=width).to(self.device)
-
-        noise = torch.randn(image.shape, generator=g_k_s, dtype=image.dtype).to(self.device)
-        image = image + noise_aug_strength * noise
-
-        needs_upcasting = self.pipe.vae.dtype == torch.float16 and self.pipe.vae.config.force_upcast
-        if needs_upcasting:
-            self.pipe.vae.to(dtype=torch.float32)
-        
-        ### need to ensure this is synchronized ###
-        image_latents = self.pipe._encode_vae_image(
-            image,
-            device=self.device,
-            num_videos_per_prompt=num_videos_per_prompt,
-            do_classifier_free_guidance=self.pipe.do_classifier_free_guidance,
-        )
-        image_latents = image_latents.to(image_embeddings.dtype)
-
-        # cast back to fp16 if needed
-        if needs_upcasting:
-            self.pipe.vae.to(dtype=torch.float16)
-
-        # image_latents [batch, channels, height, width] ->[batch, num_frames, channels, height, width]
-        image_latents = image_latents.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
-
-        added_time_ids = self.pipe._get_add_time_ids(
-            fps,
-            motion_bucket_id,
-            noise_aug_strength,
-            image_embeddings.dtype,
-            batch_size,
-            num_videos_per_prompt,
-            self.pipe.do_classifier_free_guidance,
-        )
-        added_time_ids = added_time_ids.to(self.device)
-
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
+        # Initialize nonlocals for later
+        latents = None
+        image = utils.prepare_image("logging/images/for_svd/input_sample.png", height, width)
 
         # For latent models, use callback to interact with denoising loop
         def _enc_callback(pipe, step_index, timestep, callback_kwargs):
@@ -147,9 +82,83 @@ class Pulsar():
             # The T-2'th denoising step is done, we do the rest manually
             pipe._interrupt = True
 
+            print(f"beginning encode callback")
+
             # Make variables nonlocal so they can be referenced outside this callback
             nonlocal latents
+            nonlocal image
+            nonlocal fps
             
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            
+            print(f"calculating image embeddings")
+
+            image_embeddings = pipe._encode_image(image, self.device, num_videos_per_prompt=1, do_classifier_free_guidance=pipe.do_classifier_free_guidance)
+
+            print(f"image_embeddings is {image_embeddings.shape}")
+
+            fps = fps - 1
+
+            # 4. Encode input image using VAE
+            image = pipe.video_processor.preprocess(image, height=height, width=width).to(self.device)
+
+            print(f"after preprocessing, image is {image.shape}")
+
+            noise = torch.randn(image.shape, generator=g_k_s, dtype=image.dtype).to(self.device)
+            image = image + noise_aug_strength * noise
+
+            needs_upcasting = pipe.vae.dtype == torch.float16 and pipe.vae.config.force_upcast
+            if needs_upcasting:
+                pipe.vae.to(dtype=torch.float32)
+            
+            ### need to ensure this is synchronized ###
+            image_latents = pipe._encode_vae_image(
+                image,
+                device=self.device,
+                num_videos_per_prompt=num_videos_per_prompt,
+                do_classifier_free_guidance=pipe.do_classifier_free_guidance,
+            )
+            image_latents = image_latents.to(image_embeddings.dtype)
+
+            # cast back to fp16 if needed
+            if needs_upcasting:
+                pipe.vae.to(dtype=torch.float16)
+
+            print(f"after vae, image_latents is {image_latents.shape}")
+
+            # image_latents [batch, channels, height, width] ->[batch, num_frames, channels, height, width]
+            image_latents = image_latents.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
+
+            print(f"after unsqueezing, image_latents is {image_latents.shape}")
+            
+            added_time_ids = pipe._get_add_time_ids(
+                fps,
+                motion_bucket_id,
+                noise_aug_strength,
+                image_embeddings.dtype,
+                batch_size,
+                num_videos_per_prompt,
+                pipe.do_classifier_free_guidance,
+            )
+            added_time_ids = added_time_ids.to(self.device)
+
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+
             latents = callback_kwargs["latents"]
 
             # Estimate rate
@@ -158,6 +167,8 @@ class Pulsar():
             #################
             # Online Phase
             #################
+
+            print(f"online phase start, image_embeddings {image_embeddings.shape}, image latents {image_latents.shape}")
 
             # Perform T-1'th denoising step (g_k_0 and g_k_1)
             step_index += 1
@@ -181,12 +192,27 @@ class Pulsar():
                 noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                     # sample two latents (g_k_0 and g_k_1)
-            latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, s_churn=s_churn, generator=g_k_0).prev_sample
-            latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, s_churn=s_churn, generator=g_k_1).prev_sample
+            print(f"sched, timestep {timestep}, sched step {pipe.scheduler._step_index}")
             
+            latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, s_churn=s_churn, generator=g_k_0).prev_sample
+            print(f"sched_0, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            pipe.scheduler._step_index = None   # setting to None will allow us to use timestep properly
+
+            latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, s_churn=s_churn, generator=g_k_1).prev_sample
+            print(f"sched_1, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            pipe.scheduler._step_index = None
+            
+            print(f"mixing shapes {latents_0.shape} and {latents_1.shape}")
+            show = 4
+            print(m[:show])
+            print(latents_0[0, 0, 0, :show, :show])
+            print(latents_1[0, 0, 0, :show, :show])
+
             # Encode payload and use it to mix the two latents 
             latents[:, :, :] = self._mix_samples_using_payload(m, rate, latents_0, latents_1, verbose)
             
+            print(latents[0, 0, 0, :show, :show])
+
             # Perform T'th denoising step (deterministic)
             step_index += 1
             timestep = pipe.scheduler.timesteps[-1]  ### LAST STEP ###
@@ -209,7 +235,10 @@ class Pulsar():
                 noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                     # sample final latent (determinstic)
+            print(f"sched, timestep {timestep}, sched step {pipe.scheduler._step_index}")
             latents = pipe.scheduler.step(noise_pred, timestep, latents).prev_sample
+            print(f"sched, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            pipe.scheduler._step_index = None
             
             # Exit callback by returning new latent w/ encoded latents
             callback_kwargs["latents"] = latents
@@ -217,8 +246,15 @@ class Pulsar():
         
         # Conduct pipeline
         _ = self.pipe(
-            self.prompt,
+            image,
+            height=height,
+            width=width,
+            num_frames=num_frames,
             num_inference_steps=timesteps,
+            fps=fps,
+            motion_bucket_id=motion_bucket_id,
+            noise_aug_strength=noise_aug_strength,
+            num_videos_per_prompt=num_videos_per_prompt,
             generator=g_k_s,
             callback_on_step_end=_enc_callback,
             callback_on_step_end_tensor_inputs=["latents"],
@@ -226,12 +262,16 @@ class Pulsar():
 
         # VAE decode
         frames = self.pipe.decode_latents(latents, num_frames, decode_chunk_size)
-        # frames = self.pipe.vae.decode(latents / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+        
+        print(f"after decode_latents, frames is {frames.shape}")
 
         # Save optionally
         if self.save_images:
-            self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0].save("logging/images/encode_video.mp4")
+            # self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0].save("logging/images/encode_video.mp4")
+            pass
         
+        print(f"sending frames {len(frames), frames[0].shape}")
+
         return frames
 
     def _encode_latent(self, m: str, verbose=False):
@@ -439,30 +479,10 @@ class Pulsar():
     def _decode_video(self, frames, verbose=False):
         
         # Synchronize settings
-        eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
 
-        # Initialize nonlocals for later
-        latents_0 = None
-        latents_1 = None
-        rate = None
-
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-
-        ##
-        image = None
-        ##
-
+        s_churn = 1.0
         height = 576
         width = 1024
         num_frames = self.pipe.unet.config.num_frames
@@ -473,57 +493,11 @@ class Pulsar():
         num_videos_per_prompt = 1
         batch_size = 1
         
-        image_embeddings = self.pipe._encode_image(image, self.device, num_videos_per_prompt=1, do_classifier_free_guidance=self.pipe.do_classifier_free_guidance)
-
-        fps = fps - 1
-
-        # 4. Encode input image using VAE
-        image = self.pipe.video_processor.preprocess(image, height=height, width=width).to(self.device)
-
-        noise = torch.randn(image.shape, generator=g_k_s, dtype=image.dtype).to(self.device)
-        image = image + noise_aug_strength * noise
-
-        needs_upcasting = self.pipe.vae.dtype == torch.float16 and self.pipe.vae.config.force_upcast
-        if needs_upcasting:
-            self.pipe.vae.to(dtype=torch.float32)
-        
-        ### need to ensure this is synchronized ###
-        image_latents = self.pipe._encode_vae_image(
-            image,
-            device=self.device,
-            num_videos_per_prompt=num_videos_per_prompt,
-            do_classifier_free_guidance=self.pipe.do_classifier_free_guidance,
-        )
-        image_latents = image_latents.to(image_embeddings.dtype)
-
-        # cast back to fp16 if needed
-        if needs_upcasting:
-            self.pipe.vae.to(dtype=torch.float16)
-
-        # image_latents [batch, channels, height, width] ->[batch, num_frames, channels, height, width]
-        image_latents = image_latents.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
-
-        added_time_ids = self.pipe._get_add_time_ids(
-            fps,
-            motion_bucket_id,
-            noise_aug_strength,
-            image_embeddings.dtype,
-            batch_size,
-            num_videos_per_prompt,
-            self.pipe.do_classifier_free_guidance,
-        )
-        added_time_ids = added_time_ids.to(self.device)
-
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
-        #######################################################
+        # Initialize nonlocals for later
+        latents_0 = None
+        latents_1 = None
+        rate = None
+        image = utils.prepare_image("logging/images/for_svd/input_sample.png", height, width)
 
         # For latent models, use callback to get latents prior to vae decode
         def _dec_callback(pipe, step_index, timestep, callback_kwargs):
@@ -543,6 +517,79 @@ class Pulsar():
             nonlocal latents_0
             nonlocal latents_1
             nonlocal rate
+            nonlocal image
+            nonlocal fps
+
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+
+            print(f"calculating image embeddings")
+            
+            image_embeddings = self.pipe._encode_image(image, self.device, num_videos_per_prompt=1, do_classifier_free_guidance=self.pipe.do_classifier_free_guidance)
+
+            print(f"image_embeddings is {image_embeddings.shape}")
+            
+            fps = fps - 1
+
+            # 4. Encode input image using VAE
+            image = self.pipe.video_processor.preprocess(image, height=height, width=width).to(self.device)
+
+            print(f"after preprocessing, image is {image.shape}")
+            
+            noise = torch.randn(image.shape, generator=g_k_s, dtype=image.dtype).to(self.device)
+            image = image + noise_aug_strength * noise
+
+            needs_upcasting = self.pipe.vae.dtype == torch.float16 and self.pipe.vae.config.force_upcast
+            if needs_upcasting:
+                self.pipe.vae.to(dtype=torch.float32)
+            
+            ### need to ensure this is synchronized ###
+            image_latents = self.pipe._encode_vae_image(
+                image,
+                device=self.device,
+                num_videos_per_prompt=num_videos_per_prompt,
+                do_classifier_free_guidance=self.pipe.do_classifier_free_guidance,
+            )
+            image_latents = image_latents.to(image_embeddings.dtype)
+
+            # cast back to fp16 if needed
+            if needs_upcasting:
+                self.pipe.vae.to(dtype=torch.float16)
+
+            print(f"after vae, image_latents is {image_latents.shape}")
+            
+            # image_latents [batch, channels, height, width] ->[batch, num_frames, channels, height, width]
+            image_latents = image_latents.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
+
+            added_time_ids = self.pipe._get_add_time_ids(
+                fps,
+                motion_bucket_id,
+                noise_aug_strength,
+                image_embeddings.dtype,
+                batch_size,
+                num_videos_per_prompt,
+                self.pipe.do_classifier_free_guidance,
+            )
+            added_time_ids = added_time_ids.to(self.device)
+
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
+            #######################################################
             
             latents = callback_kwargs["latents"]
 
@@ -571,8 +618,19 @@ class Pulsar():
                 noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                     # sample two latents (g_k_0 and g_k_1)
+            print(f"sched, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            
             latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, s_churn=s_churn, generator=g_k_0).prev_sample
+            print(f"sched_0, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            pipe.scheduler._step_index = None
+            
             latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, s_churn=s_churn, generator=g_k_1).prev_sample
+            print(f"sched_1, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            pipe.scheduler._step_index = None
+
+            show = 4
+            print(latents_0[0, 0, 0, :show, :show])
+            print(latents_1[0, 0, 0, :show, :show])
             
             # Perform T'th denoising step (deterministic)
             step_index += 1
@@ -609,8 +667,15 @@ class Pulsar():
                 noise_pred_1 = noise_pred_uncond_1 + pipe.guidance_scale * (noise_pred_cond_1 - noise_pred_uncond_1)
 
                     # sample final latents (deterministic)
+            print(f"sched, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            
             latents_0 = pipe.scheduler.step(noise_pred_0, timestep, latents_0).prev_sample
+            print(f"sched_0, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            pipe.scheduler._step_index = None
+            
             latents_1 = pipe.scheduler.step(noise_pred_1, timestep, latents_1).prev_sample
+            print(f"sched_1, timestep {timestep}, sched step {pipe.scheduler._step_index}")
+            pipe.scheduler._step_index = None
             
             # We will do the VAE step manually, so exit callback with anything
             callback_kwargs["latents"] = torch.zeros_like(latents)
@@ -618,36 +683,47 @@ class Pulsar():
         
         # Conduct pipeline
         _ = self.pipe(
-            self.prompt,
+            image,
+            height=height,
+            width=width,
+            num_frames=num_frames,
             num_inference_steps=timesteps,
+            fps=fps,
+            motion_bucket_id=motion_bucket_id,
+            noise_aug_strength=noise_aug_strength,
+            num_videos_per_prompt=num_videos_per_prompt,
             generator=g_k_s,
             callback_on_step_end=_dec_callback,
             callback_on_step_end_tensor_inputs=["latents"],
         )
 
+        print(f"after decode callback, latents_0 is {latents_0.shape}")
+
         # VAE decode
-        # frames_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
-        # frames_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
         frames_0 = self.pipe.decode_latents(latents_0, num_frames, decode_chunk_size)
         frames_1 = self.pipe.decode_latents(latents_1, num_frames, decode_chunk_size)
+        frames_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+        frames_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+
+        print(f"after decode_latents, frames_0 is {frames_0.shape}")
 
         # Save optionally
         if self.save_images:
-            self.pipe.video_processor.postprocess_video(video=frames_0, output_type="pil")[0].save("logging/images/decode_video_0.mp4")
-            self.pipe.video_processor.postprocess_video(video=frames_1, output_type="pil")[0].save("logging/images/decode_video_1.mp4")
+            # self.pipe.video_processor.postprocess_video(video=frames_0, output_type="pil")[0].save("logging/images/decode_video_0.mp4")
+            pass
+            # self.pipe.video_processor.postprocess_video(video=frames_1, output_type="pil")[0].save("logging/images/decode_video_1.mp4")
+            pass
 
         ######################
         # Online phase       #
         ######################
-        
-        image_latents = self.vae.encode(image).latent_dist.mode()
         
         # Undo VAE (via VAE encode)
         def _invert_vae(frames, sample_mode="mode"):
             # frames.shape [batch_size, channels, num_frames, height, width]
             # -> [batch_size*num_frames, channels, height, width]
             frames = frames.permute(0, 2, 1, 3, 4)
-            frames = torch.flatten(frames, 0, 1)
+            frames = torch.flatten(frames, 0, 1).to(torch.float16)
 
             # -> [batch_size*num_frames, num_channels_latents // 2, height // self.vae_scale_factor, width // self.vae_scale_factor]
             if sample_mode == "sample":
@@ -658,17 +734,26 @@ class Pulsar():
                 frames_to_latent = lambda frames : self.pipe.vae.encode(frames).latents * self.pipe.vae.config.scaling_factor
             return frames_to_latent(frames)
 
+        print(f"before vae inversion, frames_0 is {frames_0.shape}")
+        show = 4
+        if self.debug or True:
+            print(frames[0, 0, 0, :show, :show].numpy(force=True))
+            print(frames_0[0, 0, 0, :show, :show].numpy(force=True))
+            print(frames_1[0, 0, 0, :show, :show].numpy(force=True))
+        
         latents = _invert_vae(frames)
         latents_0 = _invert_vae(frames_0)
         latents_1 = _invert_vae(frames_1)
+
+        print(f"after invert_vae, latents_0 is {latents_0.shape}")
         
         assert latents.shape == latents_0.shape == latents_1.shape
 
             # debugging
         if self.debug or True:
-            print(latents[0, 0, 0, :10].numpy(force=True))
-            print(latents_0[0, 0, 0, :10].numpy(force=True))
-            print(latents_1[0, 0, 0, :10].numpy(force=True))
+            print(latents[0, 0, :show, :show].numpy(force=True))
+            print(latents_0[0, 0, :show, :show].numpy(force=True))
+            print(latents_1[0, 0, :show, :show].numpy(force=True))
 
         m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, rate, verbose)
         return m

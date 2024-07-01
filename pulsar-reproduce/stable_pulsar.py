@@ -24,8 +24,8 @@ def main(args):
     if device != "cuda":
         raise Exception("use gpu sir")
 
-    pipe = get_pipeline(args.model)
-    pipe = pipe.to(device)
+    pipe = get_pipeline(args.model, device)
+    # pipe = pipe.to(device)
     
     ### Experiment Loop ###
     accs, i = [], 0
@@ -34,7 +34,7 @@ def main(args):
             print("#"*75)
             # img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
-            m_sz = 1000
+            m_sz = 1500
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
             k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
             # k = (10, 11, 12)

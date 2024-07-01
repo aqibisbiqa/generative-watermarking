@@ -83,7 +83,17 @@ latent_all.add_rows([
 
 print(latent_all)
 
+latent_all = PrettyTable()
+arr[0] = "repo | latent, no codes, no postprocessing"
+latent_all.field_names = arr
+latent_all.align[arr[0]] = "l"
+latent_all.add_rows([
+    ["runwayml/stable-diffusion-v1-5", "512", "70.88%"],
+    ["stabilityai/stable-diffusion-2-1-base", "512", "71.34%"],
+    ["friedrichor/stable-diffusion-2-1-realistic", "1152", "77.71%"],
+])
 
+print(latent_all)
 
 
 

@@ -4,7 +4,7 @@ import torch
 # from diffusers import DDPMPipeline, DDIMPipeline, PNDMPipeline
 # from diffusers import StableVideoDiffusionPipeline
 
-def get_pipeline(model):
+def get_pipeline(model, device):
 
     model_is_supported = False
 
@@ -22,12 +22,16 @@ def get_pipeline(model):
         case "pixel":
             from diffusers import DDIMPipeline
             pipe = DDIMPipeline.from_pretrained(repo)
+            pipe.to(device)
         case "latent":
             from diffusers import StableDiffusionPipeline
             pipe = StableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
+            pipe.to(device)
         case "video":
             from diffusers import StableVideoDiffusionPipeline
             pipe = StableVideoDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16, variant="fp16")
+            pipe.enable_sequential_cpu_offload()
+            # pipe.enable_model_cpu_offload()
     
     return pipe
 

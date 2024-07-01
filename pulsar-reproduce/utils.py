@@ -3,7 +3,7 @@ import numpy as np
 import random
 import copy
 import functools
-from PIL import Image
+from PIL import Image, ImageOps
 
 def draw_rand(model):
     return torch.randn(
@@ -93,3 +93,29 @@ def bitarray_to_int(bitlist):
     for bit in bitlist:
         out = (out << 1) | bit
     return out
+
+# Function to rescale image and add padding if necessary
+def prepare_image(image_path, target_height=576, target_width=1024):
+    image = Image.open(image_path)
+
+    # Calculate aspect ratio
+    aspect_ratio = image.width / image.height
+    target_aspect_ratio = target_width / target_height
+
+    # Rescale the image to fit the target width or height while maintaining aspect ratio
+    if aspect_ratio > target_aspect_ratio:
+        # Image is wider than target aspect ratio
+        new_width = target_width
+        new_height = int(target_width / aspect_ratio)
+    else:
+        # Image is taller than target aspect ratio
+        new_height = target_height
+        new_width = int(target_height * aspect_ratio)
+
+    image = image.resize((new_width, new_height), Image.LANCZOS)
+
+    # Add padding to the image to match target dimensions
+    padding_color = (0, 0, 0)  # Black padding
+    image = ImageOps.pad(image, (target_width, target_height), color=padding_color)
+
+    return image
