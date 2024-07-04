@@ -54,8 +54,9 @@ class Pulsar():
         timesteps = self.timesteps
         
         s_churn = 1.0
-        height = 576
-        width = 1024
+        # height = 576
+        # width = 1024
+        height, width = 512, 512
         num_frames = self.pipe.unet.config.num_frames
         decode_chunk_size = num_frames
         fps = 7
@@ -483,8 +484,9 @@ class Pulsar():
         timesteps = self.timesteps
 
         s_churn = 1.0
-        height = 576
-        width = 1024
+        # height = 576
+        # width = 1024
+        height, width = 512, 512
         num_frames = self.pipe.unet.config.num_frames
         decode_chunk_size = num_frames
         fps = 7
@@ -702,8 +704,8 @@ class Pulsar():
         # VAE decode
         frames_0 = self.pipe.decode_latents(latents_0, num_frames, decode_chunk_size)
         frames_1 = self.pipe.decode_latents(latents_1, num_frames, decode_chunk_size)
-        frames_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
-        frames_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+        # frames_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+        # frames_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
 
         print(f"after decode_latents, frames_0 is {frames_0.shape}")
 
@@ -755,7 +757,7 @@ class Pulsar():
             print(latents_0[0, 0, :show, :show].numpy(force=True))
             print(latents_1[0, 0, :show, :show].numpy(force=True))
 
-        m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, rate, verbose)
+        m = self._decode_message_from_image_diffs(latents[:1], latents_0[:1], latents_1[:1], rate, verbose)
         return m
 
     def _decode_latent(self, img, verbose=False):

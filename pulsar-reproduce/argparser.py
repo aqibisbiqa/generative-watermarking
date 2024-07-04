@@ -1,7 +1,7 @@
 import argparse
 
 default_model = "church"
-default_iters = 10
+default_iters = 1
 default_steps = 50
 
 def argument_parser():

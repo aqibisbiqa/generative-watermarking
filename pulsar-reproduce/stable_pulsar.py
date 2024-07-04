@@ -35,9 +35,10 @@ def main(args):
             # img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
             m_sz = 1500
+            np.random.seed(0)
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
-            k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
-            # k = (10, 11, 12)
+            # k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
+            k = (10, 11, 12)
             print(f"Iteration {i+1} using keys {k}")
             prompt = "Portrait photo of a man with mustache."
             p = Pulsar(pipe, k, args.timesteps, prompt=prompt)

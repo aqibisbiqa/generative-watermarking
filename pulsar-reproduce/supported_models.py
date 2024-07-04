@@ -30,7 +30,8 @@ def get_pipeline(model, device):
         case "video":
             from diffusers import StableVideoDiffusionPipeline
             pipe = StableVideoDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16, variant="fp16")
-            pipe.enable_sequential_cpu_offload()
+            pipe.to(device)
+            # pipe.enable_sequential_cpu_offload()
             # pipe.enable_model_cpu_offload()
     
     return pipe
