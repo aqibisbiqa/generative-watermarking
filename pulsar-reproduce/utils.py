@@ -5,6 +5,8 @@ import copy
 import functools
 from PIL import Image, ImageOps
 
+import ecc
+
 def draw_rand(model):
     return torch.randn(
         1, model.config.in_channels, model.config.sample_size, model.config.sample_size
@@ -73,9 +75,10 @@ def calc_acc(m: np.ndarray, out: np.ndarray, bitwise=True):
     if bitwise:
         m = np.unpackbits(m)
         out = np.unpackbits(out)
-
-    print(m[:10])
-    print(out[:10])
+    
+    show = 37
+    print(m[:show])
+    print(out[:show])
     return len(np.where(m==out)[0]) / m.size
 
 def apply_op_to_chunks(arr: np.ndarray, chunk_size, op):
@@ -119,3 +122,10 @@ def prepare_image(image_path, target_height=576, target_width=1024):
     image = ImageOps.pad(image, (target_width, target_height), color=padding_color)
 
     return image
+
+def mix_samples_using_payload(payload, rate, samp_0, samp_1, device, verbose=False):
+    m_ecc = ecc.ecc_encode(payload, rate)
+    m_ecc.resize(samp_0[0, 0].shape, refcheck=False)
+    if verbose: print("### Message BEFORE Transmission ###", m_ecc, "#"*35, sep="\n")
+    m_ecc = torch.from_numpy(m_ecc).to(device)
+    return torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
