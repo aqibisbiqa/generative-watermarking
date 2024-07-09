@@ -20,8 +20,9 @@ def get_pipeline(model, device):
     print(f"Will load {model} model from {repo}")
     match model_type:
         case "pixel":
-            from diffusers import DDIMPipeline
-            pipe = DDIMPipeline.from_pretrained(repo)
+            # from diffusers import DDIMPipeline
+            from stego_pipelines.ddim import StegoDDIMPipeline
+            pipe = StegoDDIMPipeline.from_pretrained(repo)
             pipe.to(device)
         case "latent":
             from diffusers import StableDiffusionPipeline
@@ -29,7 +30,7 @@ def get_pipeline(model, device):
             pipe.to(device)
         case "video":
             # from diffusers import StableVideoDiffusionPipeline
-            from stego_pipelines import StegoStableVideoDiffusionPipeline
+            from stego_pipelines.video import StegoStableVideoDiffusionPipeline
             pipe = StegoStableVideoDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16, variant="fp16")
             pipe.to(device)
             # pipe.enable_sequential_cpu_offload()

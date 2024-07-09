@@ -44,8 +44,10 @@ class Pulsar():
                 return self._encode_video_old(m, verbose)
             case "StableDiffusionPipeline":
                 return self._encode_latent(m, verbose)
-            case "DDIMPipeline":
+            case "StegoDDIMPipeline":
                 return self._encode_pixel(m, verbose)
+            case "DDIMPipeline":
+                return self._encode_pixel_old(m, verbose)
             case _:
                 raise AttributeError(f"the {cls_name} is not supported")
     
@@ -457,6 +459,30 @@ class Pulsar():
         return img
 
     def _encode_pixel(self, m: str, verbose=False):
+
+        # Synchronize settings
+        eta = 1
+        g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
+        timesteps = self.timesteps
+
+        pipeline_output = self.pipe(
+            eta=eta,
+            num_inference_steps=timesteps,
+            output_type="pt",
+            return_dict=True,
+            stego_type="encode",
+            keys=self.keys,
+            payload_or_image=m,
+        )
+
+        img = pipeline_output["images"]
+
+        # Optionally save image
+        if self.save_images: utils.process_pixel(img)[0].save("logging/images/encode_pixel.png")
+        
+        return img
+    
+    def _encode_pixel_old(self, m: str, verbose=False):
         
         #################
         # Offline phase #
@@ -533,8 +559,10 @@ class Pulsar():
                 return self._decode_video_old(m, verbose)
             case "StableDiffusionPipeline":
                 return self._decode_latent(img, verbose)
-            case "DDIMPipeline":
+            case "StegoDDIMPipeline":
                 return self._decode_pixel(img, verbose)
+            case "DDIMPipeline":
+                return self._decode_pixel_old(img, verbose)
             case _:
                 raise AttributeError(f"the {cls_name} is not supported")
 
@@ -1090,6 +1118,43 @@ class Pulsar():
         return m
 
     def _decode_pixel(self, img, verbose=False):
+
+
+        ######################
+        # Offline phase      #
+        ######################
+
+        # Synchronize encode/decode settings
+        eta = 1
+        g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
+        timesteps = self.timesteps
+
+        pipeline_output = self.pipe(
+            eta=eta,
+            num_inference_steps=timesteps,
+            output_type="pt",
+            return_dict=True,
+            stego_type="decode",
+            keys=self.keys,
+        )
+        
+        img_0, img_1 = pipeline_output["images"].chunk(2)
+        rate = pipeline_output["rate"]
+
+        # Optionally save images
+        if self.save_images: utils.process_pixel(img_0)[0].save("logging/images/decode_pixel_0.png")
+        if self.save_images: utils.process_pixel(img_1)[0].save("logging/images/decode_pixel_1.png")
+
+        ######################
+        # Online phase       #
+        ######################
+
+        # Decoding
+        m = self._decode_message_from_image_diffs(img, img_0, img_1, rate, verbose)
+
+        return m
+    
+    def _decode_pixel_old(self, img, verbose=False):
 
         ######################
         # Offline phase      #
