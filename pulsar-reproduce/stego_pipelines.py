@@ -37,7 +37,7 @@ from diffusers.utils.torch_utils import is_compiled_module, randn_tensor
 from diffusers.video_processor import VideoProcessor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
-from utils import mix_samples_using_payload
+from utils import mix_samples_using_payload, decode_message_from_image_diffs
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -245,6 +245,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         do_classifier_free_guidance: bool,
     ):
         image = image.to(device=device)
+        # print(f"before encoding, image is {image.shape}")
         image_latents = self.vae.encode(image).latent_dist.mode()
 
         # duplicate image_latents for each generation per prompt, using mps friendly method
@@ -519,6 +520,9 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         if needs_upcasting:
             self.vae.to(dtype=torch.float32)
 
+        show = 4
+        # print(image[0, 0, :show, :show].numpy(force=True))
+        
         image_latents = self._encode_vae_image(
             image,
             device=device,
@@ -603,22 +607,27 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                     noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                if stego_type is None or i not in [self.num_timesteps-2]:
+                if stego_type is None:
                     latents = self.scheduler.step(noise_pred, t, latents).prev_sample
                 else:
-                    match stego_type:
-                        case "encode":
-                            latents_0 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, generator=g_k_0).prev_sample
-                            self.scheduler._step_index = None
-                            latents_1 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, generator=g_k_1).prev_sample
-                            self.scheduler._step_index = None
-                            latents[:, :, :] = mix_samples_using_payload(payload_or_image, None, latents_0, latents_1, device, verbose=False)
-                            # raise NotImplementedError("encode in progress")
-                        case "decode":
-                            latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-                            # raise NotImplementedError("decode in progress")
-                        case _:
-                            raise AttributeError("stego_type must be one of [None, \"encode\", \"decode\"]")
+                    if i in [self.num_timesteps-2]:
+                        latents_0 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, generator=g_k_0).prev_sample
+                        self.scheduler._step_index = None
+                        latents_1 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, generator=g_k_1).prev_sample
+                        self.scheduler._step_index = None
+                        match stego_type:
+                            case "encode":
+                                latents[:, :, :] = mix_samples_using_payload(payload_or_image, None, latents_0, latents_1, device, verbose=False)
+                            case "decode":
+                                # to avoid doing an extra pass for each latent, double 
+                                latents = torch.cat([latents_0, latents_1])
+                                image_latents = torch.cat([image_latents, image_latents])
+                                image_embeddings = torch.cat([image_embeddings, image_embeddings])
+                                added_time_ids = torch.cat([added_time_ids, added_time_ids])
+                            case _:
+                                raise AttributeError("stego_type must be one of [None, \"encode\", \"decode\"]")
+                    else:
+                        latents = self.scheduler.step(noise_pred, t, latents).prev_sample
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}

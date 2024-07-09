@@ -21,20 +21,6 @@ def display_sample(sample, i):
     display(f"Image at step {i}")
     display(image_pil)
 
-# def get_residual(model, sample, t):
-#     with torch.no_grad():
-#         residual = model(sample, t).sample
-#     return residual
-
-# def save_image(image, location: str, unprocessed):
-#     if unprocessed:
-#         image = (image / 2 + 0.5).clamp(0, 1)
-#         image = image.cpu().permute(1, 2, 0).numpy()
-#         image = numpy_to_pil(image)
-#     if isinstance(image, list):
-#         image = image[0]
-#     image.save(location)
-
 def process_pixel(images):
     images = (images / 2 + 0.5).clamp(0, 1)
     dims = (0, 2, 3, 1) if images.ndim==4 else (1, 2, 0)
@@ -66,20 +52,6 @@ def dbg_print(name, arr):
     debug = True
     if debug:
         print(f"{name:13s}: {str(len(arr)):5s} {arr}")
-
-def calc_acc(m: np.ndarray, out: np.ndarray, bitwise=True):
-    min_len = min(len(m), len(out))
-    m = m[:min_len]
-    out = out[:min_len]
-    
-    if bitwise:
-        m = np.unpackbits(m)
-        out = np.unpackbits(out)
-    
-    show = 37
-    print(m[:show])
-    print(out[:show])
-    return len(np.where(m==out)[0]) / m.size
 
 def apply_op_to_chunks(arr: np.ndarray, chunk_size, op):
     l = len(arr)
@@ -129,3 +101,32 @@ def mix_samples_using_payload(payload, rate, samp_0, samp_1, device, verbose=Fal
     if verbose: print("### Message BEFORE Transmission ###", m_ecc, "#"*35, sep="\n")
     m_ecc = torch.from_numpy(m_ecc).to(device)
     return torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
+
+def decode_message_from_image_diffs(img, img_0, img_1, rate, verbose=False):
+    diffs_0 = torch.norm(img - img_0, dim=(0, 1))
+    diffs_1 = torch.norm(img - img_1, dim=(0, 1))
+
+    if True:
+        show = 5
+        print(diffs_0[:show, :show])
+        print(diffs_1[:show, :show])
+
+    m_dec = torch.where(diffs_0 < diffs_1, 0, 1).cpu().detach().numpy().astype(int)
+    if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
+    m_dec = m_dec.flatten()
+    return ecc.ecc_recover(m_dec, rate)
+
+def calc_acc(m: np.ndarray, out: np.ndarray, bitwise=True):
+    min_len = min(len(m), len(out))
+    m = m[:min_len]
+    out = out[:min_len]
+    
+    if bitwise:
+        m = np.unpackbits(m)
+        out = np.unpackbits(out)
+    
+    show = 37
+    print(m[:show])
+    print(out[:show])
+    print(sum(out))
+    return len(np.where(m==out)[0]) / m.size
