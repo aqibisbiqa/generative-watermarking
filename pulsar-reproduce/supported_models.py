@@ -4,7 +4,7 @@ import torch
 # from diffusers import DDPMPipeline, DDIMPipeline, PNDMPipeline
 # from diffusers import StableVideoDiffusionPipeline
 
-def get_pipeline(model, device):
+def get_pipeline(model, device, old=False):
 
     model_is_supported = False
 
@@ -26,10 +26,12 @@ def get_pipeline(model, device):
             pipe = StegoDDIMPipeline.from_pretrained(repo)
             pipe.to(device)
         case "latent":
-            # from diffusers import StableDiffusionPipeline
-            # pipe = StableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
-            from stego_pipelines.latent import StegoStableDiffusionPipeline
-            pipe = StegoStableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
+            if old:
+                from diffusers import StableDiffusionPipeline
+                pipe = StableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
+            else:
+                from stego_pipelines.latent import StegoStableDiffusionPipeline
+                pipe = StegoStableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
             pipe.to(device)
         case "video":
             # from diffusers import StableVideoDiffusionPipeline

@@ -24,7 +24,7 @@ def main(args):
     if device != "cuda":
         raise Exception("use gpu sir")
 
-    pipe = get_pipeline(args.model, device)
+    pipe = get_pipeline(args.model, device, args.old)
     # pipe = pipe.to(device)
     
     ### Experiment Loop ###
@@ -38,9 +38,10 @@ def main(args):
             np.random.seed(0)
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
             k = (10, 11, 12)
-            k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
+            # k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
             print(f"Iteration {i+1} using keys {k}")
             prompt = "Portrait photo of a man with mustache."
+            # prompt = "A photo of a cat."
             p = Pulsar(pipe, k, args.timesteps, prompt=prompt)
             print("ENCODING")
             img = p.encode(m, verbose=args.verbose)

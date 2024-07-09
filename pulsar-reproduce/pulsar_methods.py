@@ -338,29 +338,32 @@ class Pulsar():
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
+
+        print(f"sending {m[:10]}")
         
         # Conduct pipeline
         pipeline_output = self.pipe(
+            stego_type="encode",
+            payload_or_image=m,
+            keys = self.keys,
+            output_type="latent",
             prompt=self.prompt,
             num_inference_steps=timesteps,
-            output_type="latent",
+            generator=g_k_s,
             return_dict=True,
-            stego_type="encode",
-            keys = self.keys,
-            payload_or_image=m,
         )
 
         latents = pipeline_output["images"]
-        rate = pipeline_output["rate"]
-
-        print(f"after pipeline, latents is {latents.shape}")
 
         # VAE decode
         img = self.pipe.vae.decode(latents / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
 
+        # Image processing
+        processed_img = self.pipe.image_processor.postprocess(img, output_type="pil")[0]
+        
         # Save optionally
         if self.save_images: 
-            self.pipe.image_processor.postprocess(img, output_type="pil")[0].save("logging/images/encode_latent.png")
+            processed_img.save("logging/images/encode_latent.png")
         
         return img
 
@@ -370,6 +373,8 @@ class Pulsar():
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
+
+        print(f"sending {m[:10]}")
 
         # Initialize nonlocals for later
         latents = None
@@ -384,6 +389,8 @@ class Pulsar():
             # Interrupt denoising loop with two steps left
             if step_index != pipe.num_timesteps - 3:
                 return callback_kwargs
+            
+            print(f"pipe has {pipe.num_timesteps} steps")
 
             # The T-2'th denoising step is done, we do the rest manually
             pipe._interrupt = True
@@ -431,10 +438,17 @@ class Pulsar():
             if pipe.do_classifier_free_guidance:
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                 noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_text - noise_pred_uncond)
+            
+            print(f"at timestep {step_index, timestep}")
+            print(f"kwargs_0 look like {extra_step_kwargs_0}")
+            # print(f"noise_pred look like {noise_pred[0, 0, 0, :4]}")
+            print(f"latents look like {latents[0, 0, 0, :4]}")
 
                     # sample two latents (g_k_0 and g_k_1)
             latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_0, return_dict=False)[0]
             latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_1, return_dict=False)[0]
+
+            print(f"latents_0 look like {latents_0[0, 0, 0, :4]}")
             
             # Encode payload and use it to mix the two latents 
             latents[:, :] = self._mix_samples_using_payload(m, rate, latents_0, latents_1, verbose)
@@ -992,12 +1006,13 @@ class Pulsar():
 
         # Conduct pipeline
         pipeline_output = self.pipe(
-            prompt=self.prompt,
-            num_inference_steps=timesteps,
-            output_type="latent",
-            return_dict=True,
             stego_type="decode",
             keys = self.keys,
+            output_type="latent",
+            prompt=self.prompt,
+            num_inference_steps=timesteps,
+            generator=g_k_s,
+            return_dict=True,
         )
 
         latents_0, latents_1 = pipeline_output["images"].chunk(2)
@@ -1007,10 +1022,14 @@ class Pulsar():
         img_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
         img_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
 
+        # Image processing
+        processed_img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pil")[0]
+        processed_img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil")[0]
+
         # Save optionally
         if self.save_images:
-            self.pipe.image_processor.postprocess(img_0, output_type="pil")[0].save("logging/images/decode_latent_0.png")
-            self.pipe.image_processor.postprocess(img_1, output_type="pil")[0].save("logging/images/decode_latent_1.png")
+            processed_img_0.save("logging/images/decode_latent_0.png")
+            processed_img_1.save("logging/images/decode_latent_1.png")
 
         ######################
         # Online phase       #
@@ -1088,6 +1107,8 @@ class Pulsar():
 
             # Estimate rate
             rate = estimate_rate(self, latents)
+
+            print(f"latents look like {latents[0, 0, 0, :4]}")
 
             # Perform T-1'th denoising step (g_k_0 and g_k_1)
             step_index += 1
