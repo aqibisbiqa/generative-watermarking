@@ -37,7 +37,7 @@ from diffusers.utils.torch_utils import is_compiled_module, randn_tensor
 from diffusers.video_processor import VideoProcessor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
-from utils import mix_samples_using_payload, decode_message_from_image_diffs
+from utils import mix_samples_using_payload
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 

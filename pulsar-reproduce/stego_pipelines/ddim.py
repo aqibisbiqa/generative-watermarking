@@ -76,13 +76,13 @@ class StegoDDIMPipeline(DiffusionPipeline):
         
         rate = estimate_rate(self, image)
         
-        if stego_type == "encode":
-            # Perform T-1'th denoising step (g_k_0 and g_k_1)
-            t = self.scheduler.timesteps[-2]  ### PENULTIMATE STEP ###
-            resid = self.unet(image, t).sample
-            image_0 = self.scheduler.step(resid, t, image, generator=g_k_0, eta=eta).prev_sample
-            image_1 = self.scheduler.step(resid, t, image, generator=g_k_1, eta=eta).prev_sample
+        # Perform T-1'th denoising step (g_k_0 and g_k_1)
+        t = self.scheduler.timesteps[-2]  ### PENULTIMATE STEP ###
+        resid = self.unet(image, t).sample
+        image_0 = self.scheduler.step(resid, t, image, generator=g_k_0, eta=eta).prev_sample
+        image_1 = self.scheduler.step(resid, t, image, generator=g_k_1, eta=eta).prev_sample
 
+        if stego_type == "encode":
             # Encode payload and use it to mix the two samples pixelwise
             image[:, :] = mix_samples_using_payload(payload_or_image, rate, image_0, image_1, device)
 
@@ -91,11 +91,7 @@ class StegoDDIMPipeline(DiffusionPipeline):
             resid = self.unet(image, t).sample
             image = self.scheduler.step(resid, t, image).prev_sample
         elif stego_type == "decode":
-            t = self.scheduler.timesteps[-2]   # penultimate step
-            resid = self.unet(image, t).sample
-            image_0 = self.scheduler.step(resid, t, image, generator=g_k_0, eta=eta).prev_sample
-            image_1 = self.scheduler.step(resid, t, image, generator=g_k_1, eta=eta).prev_sample
-            t = self.scheduler.timesteps[-1]   # last step
+            t = self.scheduler.timesteps[-1]  ### LAST STEP ###
             resid_0 = self.unet(image_0, t).sample
             resid_1 = self.unet(image_1, t).sample
             image_0 = self.scheduler.step(resid_0, t, image_0, eta=eta).prev_sample

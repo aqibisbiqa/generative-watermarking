@@ -38,7 +38,7 @@ def main(args):
             np.random.seed(0)
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
             k = (10, 11, 12)
-            # k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
+            k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
             print(f"Iteration {i+1} using keys {k}")
             prompt = "Portrait photo of a man with mustache."
             p = Pulsar(pipe, k, args.timesteps, prompt=prompt)

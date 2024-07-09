@@ -21,15 +21,19 @@ def get_pipeline(model, device):
     match model_type:
         case "pixel":
             # from diffusers import DDIMPipeline
+            # pipe = DDIMPipeline.from_pretrained(repo)
             from stego_pipelines.ddim import StegoDDIMPipeline
             pipe = StegoDDIMPipeline.from_pretrained(repo)
             pipe.to(device)
         case "latent":
-            from diffusers import StableDiffusionPipeline
-            pipe = StableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
+            # from diffusers import StableDiffusionPipeline
+            # pipe = StableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
+            from stego_pipelines.latent import StegoStableDiffusionPipeline
+            pipe = StegoStableDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16)
             pipe.to(device)
         case "video":
             # from diffusers import StableVideoDiffusionPipeline
+            # pipe = StableVideoDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16, variant="fp16")
             from stego_pipelines.video import StegoStableVideoDiffusionPipeline
             pipe = StegoStableVideoDiffusionPipeline.from_pretrained(repo, torch_dtype=torch.float16, variant="fp16")
             pipe.to(device)

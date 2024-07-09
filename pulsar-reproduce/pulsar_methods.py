@@ -18,13 +18,6 @@ class Pulsar():
         self.prompt = prompt
         
         self.keys = keys
-        # k_s, k_0, k_1 = keys
-        # g_k_s, g_k_0, g_k_1 = torch.Generator(), torch.Generator(), torch.Generator()
-        # g_k_s.manual_seed(k_s)
-        # g_k_0.manual_seed(k_0)
-        # g_k_1.manual_seed(k_1)
-
-        # print(self.pipe.config)
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.save_images = save_images
@@ -40,12 +33,15 @@ class Pulsar():
         match cls_name:
             case "StegoStableVideoDiffusionPipeline":
                 return self._encode_video(m, verbose)
-            case "StableVideoDiffusionPipeline":
-                return self._encode_video_old(m, verbose)
-            case "StableDiffusionPipeline":
+            case "StegoStableDiffusionPipeline":
                 return self._encode_latent(m, verbose)
             case "StegoDDIMPipeline":
                 return self._encode_pixel(m, verbose)
+            
+            case "StableVideoDiffusionPipeline":
+                return self._encode_video_old(m, verbose)
+            case "StableDiffusionPipeline":
+                return self._encode_latent_old(m, verbose)
             case "DDIMPipeline":
                 return self._encode_pixel_old(m, verbose)
             case _:
@@ -342,6 +338,38 @@ class Pulsar():
         eta = 1
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
+        
+        # Conduct pipeline
+        pipeline_output = self.pipe(
+            prompt=self.prompt,
+            num_inference_steps=timesteps,
+            output_type="latent",
+            return_dict=True,
+            stego_type="encode",
+            keys = self.keys,
+            payload_or_image=m,
+        )
+
+        latents = pipeline_output["images"]
+        rate = pipeline_output["rate"]
+
+        print(f"after pipeline, latents is {latents.shape}")
+
+        # VAE decode
+        img = self.pipe.vae.decode(latents / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+
+        # Save optionally
+        if self.save_images: 
+            self.pipe.image_processor.postprocess(img, output_type="pil")[0].save("logging/images/encode_latent.png")
+        
+        return img
+
+    def _encode_latent_old(self, m: str, verbose=False):
+
+        # Synchronize settings
+        eta = 1
+        g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
+        timesteps = self.timesteps
 
         # Initialize nonlocals for later
         latents = None
@@ -555,12 +583,15 @@ class Pulsar():
         match cls_name:
             case "StegoStableVideoDiffusionPipeline":
                 return self._decode_video(img, verbose)
-            case "StableVideoDiffusionPipeline":
-                return self._decode_video_old(m, verbose)
-            case "StableDiffusionPipeline":
+            case "StegoStableDiffusionPipeline":
                 return self._decode_latent(img, verbose)
             case "StegoDDIMPipeline":
                 return self._decode_pixel(img, verbose)
+            
+            case "StableVideoDiffusionPipeline":
+                return self._decode_video_old(img, verbose)
+            case "StableDiffusionPipeline":
+                return self._decode_latent_old(img, verbose)
             case "DDIMPipeline":
                 return self._decode_pixel_old(img, verbose)
             case _:
@@ -953,6 +984,66 @@ class Pulsar():
         return m
 
     def _decode_latent(self, img, verbose=False):
+        
+        # Synchronize settings
+        eta = 1
+        g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
+        timesteps = self.timesteps
+
+        # Conduct pipeline
+        pipeline_output = self.pipe(
+            prompt=self.prompt,
+            num_inference_steps=timesteps,
+            output_type="latent",
+            return_dict=True,
+            stego_type="decode",
+            keys = self.keys,
+        )
+
+        latents_0, latents_1 = pipeline_output["images"].chunk(2)
+        rate = pipeline_output["rate"]
+
+        # VAE decode
+        img_0 = self.pipe.vae.decode(latents_0 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+        img_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
+
+        # Save optionally
+        if self.save_images:
+            self.pipe.image_processor.postprocess(img_0, output_type="pil")[0].save("logging/images/decode_latent_0.png")
+            self.pipe.image_processor.postprocess(img_1, output_type="pil")[0].save("logging/images/decode_latent_1.png")
+
+        ######################
+        # Online phase       #
+        ######################
+        
+        # Undo VAE (via VAE encode)
+        def _invert_vae(image, sample_mode="sample"):
+            # image = pil_to_tensor(image).to(torch.float16).to(self.device)
+            # image = torch.unsqueeze(image, 0)
+            if sample_mode == "sample":
+                img_to_latent = lambda image : self.pipe.vae.encode(image).latent_dist.sample(g_k_s) * self.pipe.vae.config.scaling_factor
+            elif sample_mode == "mode":
+                img_to_latent = lambda image : self.pipe.vae.encode(image).latent_dist.mode() * self.pipe.vae.config.scaling_factor
+            else:
+                img_to_latent = lambda image : self.pipe.vae.encode(image).latents * self.pipe.vae.config.scaling_factor
+            return img_to_latent(image)
+
+        latents = _invert_vae(img)
+        latents_0 = _invert_vae(img_0)
+        latents_1 = _invert_vae(img_1)
+        
+        assert latents.shape == latents_0.shape == latents_1.shape
+
+            # debugging
+        if self.debug or True:
+            print(latents[0, 0, 0, :10].numpy(force=True))
+            print(latents_0[0, 0, 0, :10].numpy(force=True))
+            print(latents_1[0, 0, 0, :10].numpy(force=True))
+
+        m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, rate, verbose)
+        return m
+
+    def _decode_latent_old(self, img, verbose=False):
         
         # Synchronize settings
         eta = 1
