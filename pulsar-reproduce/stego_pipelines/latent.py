@@ -215,8 +215,16 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in keys])
         extra_step_kwargs_s = self.prepare_extra_step_kwargs(g_k_s, eta)
-        extra_step_kwargs_0 = self.prepare_extra_step_kwargs(g_k_0, 1)
-        extra_step_kwargs_1 = self.prepare_extra_step_kwargs(g_k_1, 1)
+        penul_eta = 1
+        extra_step_kwargs_0 = self.prepare_extra_step_kwargs(g_k_0, penul_eta)
+        extra_step_kwargs_1 = self.prepare_extra_step_kwargs(g_k_1, penul_eta)
+
+        """
+        very interesting development, as different etas yield vastly different performance
+        tuples are (eta_s, eta_0, eta_1)
+        for sd21real, (0, 1, 1) is ideal
+        for sd21, (0, 0, 0) is ideal
+        """
 
         # 6.1 Add image embeds for IP-Adapter
         added_cond_kwargs = (
@@ -270,15 +278,10 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
                     # proceed normally
                     latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_s, return_dict=False)[0]
                 else:
-                    print(f"pipe has {self.num_timesteps} steps")
-                    print(f"at timestep {i, t}")
-                    # print(f"noise_pred look like {noise_pred[0, 0, 0, :4]}")
-                    print(f"latents look like {latents[0, 0, 0, :4]}")
-                    # stego embedding
+                    # stego step at penultimate step
                     rate = estimate_rate(self, latents)
                     latents_0 = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_0, return_dict=False)[0]
                     latents_1 = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_1, return_dict=False)[0]
-                    print(f"latents_0 look like {latents_0[0, 0, 0, :4]}")
                     if stego_type == "encode":
                         latents[:, :] = mix_samples_using_payload(payload_or_image, None, latents_0, latents_1, device, verbose=False)
                     elif stego_type == "decode":

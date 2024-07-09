@@ -374,8 +374,6 @@ class Pulsar():
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         timesteps = self.timesteps
 
-        print(f"sending {m[:10]}")
-
         # Initialize nonlocals for later
         latents = None
 
@@ -389,8 +387,6 @@ class Pulsar():
             # Interrupt denoising loop with two steps left
             if step_index != pipe.num_timesteps - 3:
                 return callback_kwargs
-            
-            print(f"pipe has {pipe.num_timesteps} steps")
 
             # The T-2'th denoising step is done, we do the rest manually
             pipe._interrupt = True
@@ -439,16 +435,9 @@ class Pulsar():
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                 noise_pred = noise_pred_uncond + pipe.guidance_scale * (noise_pred_text - noise_pred_uncond)
             
-            print(f"at timestep {step_index, timestep}")
-            print(f"kwargs_0 look like {extra_step_kwargs_0}")
-            # print(f"noise_pred look like {noise_pred[0, 0, 0, :4]}")
-            print(f"latents look like {latents[0, 0, 0, :4]}")
-
                     # sample two latents (g_k_0 and g_k_1)
             latents_0 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_0, return_dict=False)[0]
             latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_1, return_dict=False)[0]
-
-            print(f"latents_0 look like {latents_0[0, 0, 0, :4]}")
             
             # Encode payload and use it to mix the two latents 
             latents[:, :] = self._mix_samples_using_payload(m, rate, latents_0, latents_1, verbose)
@@ -1107,8 +1096,6 @@ class Pulsar():
 
             # Estimate rate
             rate = estimate_rate(self, latents)
-
-            print(f"latents look like {latents[0, 0, 0, :4]}")
 
             # Perform T-1'th denoising step (g_k_0 and g_k_1)
             step_index += 1
