@@ -65,17 +65,16 @@ class Pulsar():
         num_videos_per_prompt = 1
         batch_size = 1
 
-        # Initialize nonlocals for later
-        latents = None
         image = utils.prepare_image("logging/images/for_svd/input_sample.png", height, width)
+        needs_upcasting = self.pipe.vae.dtype == torch.float16 and self.pipe.vae.config.force_upcast
 
         # Conduct pipeline
-        latents = self.pipe(
-            image,
+        pipeline_output = self.pipe(
             stego_type="encode",
-            output_type="latent",
             payload_or_image=m,
             keys = self.keys,
+            output_type="latent",
+            image=image,
             height=height,
             width=width,
             num_frames=num_frames,
@@ -85,22 +84,20 @@ class Pulsar():
             noise_aug_strength=noise_aug_strength,
             num_videos_per_prompt=num_videos_per_prompt,
             generator=g_k_s,
-            return_dict=False,
+            return_dict=True,
         )
 
-        print(f"after pipeline, latents is {latents.shape}")
+        latents = pipeline_output["frames"]
 
         # VAE decode
+        if needs_upcasting:
+            self.pipe.vae.to(dtype=torch.float16)
         frames = self.pipe.decode_latents(latents, num_frames, decode_chunk_size)
-        
-        print(f"after decode_latents, frames is {frames.shape}")
 
         # Save optionally
         if self.save_images:
             # self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0].save("logging/images/encode_video.mp4")
             pass
-        
-        print(f"sending frames {len(frames), frames[0].shape}")
 
         return frames
 
@@ -618,19 +615,15 @@ class Pulsar():
         num_videos_per_prompt = 1
         batch_size = 1
         
-        # Initialize nonlocals for later
-        latents_0 = None
-        latents_1 = None
-        rate = None
         image = utils.prepare_image("logging/images/for_svd/input_sample.png", height, width)
+        needs_upcasting = self.pipe.vae.dtype == torch.float16 and self.pipe.vae.config.force_upcast
         
         # Conduct pipeline
-        latents = self.pipe(
-            image,
+        pipeline_output = self.pipe(
             stego_type="decode",
-            output_type="latent",
-            payload_or_image=frames,
             keys = self.keys,
+            output_type="latent",
+            image=image,
             height=height,
             width=width,
             num_frames=num_frames,
@@ -640,15 +633,17 @@ class Pulsar():
             noise_aug_strength=noise_aug_strength,
             num_videos_per_prompt=num_videos_per_prompt,
             generator=g_k_s,
-            return_dict=False,
+            return_dict=True,
         )
 
-        print(f"after pipeline, latents is {latents.shape}")
+        latents_0, latents_1 = pipeline_output["frames"].chunk(2)
+        rate = pipeline_output["rate"]
 
         # VAE decode
-        frames_0, frames_1 = self.pipe.decode_latents(latents, num_frames, decode_chunk_size).chunk(2)
-
-        print(f"after decode_latents, frames_0 is {frames_0.shape}")
+        if needs_upcasting:
+            self.pipe.vae.to(dtype=torch.float16)
+        frames_0 = self.pipe.decode_latents(latents_0, num_frames, decode_chunk_size)
+        frames_1 = self.pipe.decode_latents(latents_1, num_frames, decode_chunk_size)
 
         # Save optionally
         if self.save_images:

@@ -37,99 +37,10 @@ from diffusers.utils.torch_utils import is_compiled_module, randn_tensor
 from diffusers.video_processor import VideoProcessor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
+from rate_estimation import estimate_rate
 from utils import mix_samples_using_payload
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
-
-EXAMPLE_DOC_STRING = """
-    Examples:
-        ```py
-        >>> from diffusers import StegoStableVideoDiffusionPipeline
-        >>> from diffusers.utils import load_image, export_to_video
-
-        >>> pipe = StegoStableVideoDiffusionPipeline.from_pretrained(
-        ...     "stabilityai/stable-video-diffusion-img2vid-xt", torch_dtype=torch.float16, variant="fp16"
-        ... )
-        >>> pipe.to("cuda")
-
-        >>> image = load_image(
-        ...     "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd-docstring-example.jpeg"
-        ... )
-        >>> image = image.resize((1024, 576))
-
-        >>> frames = pipe(image, num_frames=25, decode_chunk_size=8).frames[0]
-        >>> export_to_video(frames, "generated.mp4", fps=7)
-        ```
-"""
-
-
-def _append_dims(x, target_dims):
-    """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
-    dims_to_append = target_dims - x.ndim
-    if dims_to_append < 0:
-        raise ValueError(f"input has {x.ndim} dims but target_dims is {target_dims}, which is less")
-    return x[(...,) + (None,) * dims_to_append]
-
-
-# Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.retrieve_timesteps
-def retrieve_timesteps(
-    scheduler,
-    num_inference_steps: Optional[int] = None,
-    device: Optional[Union[str, torch.device]] = None,
-    timesteps: Optional[List[int]] = None,
-    sigmas: Optional[List[float]] = None,
-    **kwargs,
-):
-    """
-    Calls the scheduler's `set_timesteps` method and retrieves timesteps from the scheduler after the call. Handles
-    custom timesteps. Any kwargs will be supplied to `scheduler.set_timesteps`.
-
-    Args:
-        scheduler (`SchedulerMixin`):
-            The scheduler to get timesteps from.
-        num_inference_steps (`int`):
-            The number of diffusion steps used when generating samples with a pre-trained model. If used, `timesteps`
-            must be `None`.
-        device (`str` or `torch.device`, *optional*):
-            The device to which the timesteps should be moved to. If `None`, the timesteps are not moved.
-        timesteps (`List[int]`, *optional*):
-            Custom timesteps used to override the timestep spacing strategy of the scheduler. If `timesteps` is passed,
-            `num_inference_steps` and `sigmas` must be `None`.
-        sigmas (`List[float]`, *optional*):
-            Custom sigmas used to override the timestep spacing strategy of the scheduler. If `sigmas` is passed,
-            `num_inference_steps` and `timesteps` must be `None`.
-
-    Returns:
-        `Tuple[torch.Tensor, int]`: A tuple where the first element is the timestep schedule from the scheduler and the
-        second element is the number of inference steps.
-    """
-    if timesteps is not None and sigmas is not None:
-        raise ValueError("Only one of `timesteps` or `sigmas` can be passed. Please choose one to set custom values")
-    if timesteps is not None:
-        accepts_timesteps = "timesteps" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
-        if not accepts_timesteps:
-            raise ValueError(
-                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
-                f" timestep schedules. Please check whether you are using the correct scheduler."
-            )
-        scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
-        timesteps = scheduler.timesteps
-        num_inference_steps = len(timesteps)
-    elif sigmas is not None:
-        accept_sigmas = "sigmas" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
-        if not accept_sigmas:
-            raise ValueError(
-                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
-                f" sigmas schedules. Please check whether you are using the correct scheduler."
-            )
-        scheduler.set_timesteps(sigmas=sigmas, device=device, **kwargs)
-        timesteps = scheduler.timesteps
-        num_inference_steps = len(timesteps)
-    else:
-        scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
-        timesteps = scheduler.timesteps
-    return timesteps, num_inference_steps
-
 
 @dataclass
 class StegoStableVideoDiffusionPipelineOutput(BaseOutput):
@@ -384,9 +295,9 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         return self._num_timesteps
 
     @torch.no_grad()
-    @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
         self,
+        stego_type: str,
         image: Union[PIL.Image.Image, List[PIL.Image.Image], torch.Tensor],
         height: int = 576,
         width: int = 1024,
@@ -406,7 +317,6 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         return_dict: bool = True,
-        stego_type: Optional[str] = None,
         keys: tuple = (10, 11, 12),
         payload_or_image = None,
     ):
@@ -481,6 +391,15 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                 returned, otherwise a `tuple` of (`List[List[PIL.Image.Image]]` or `np.ndarray` or `torch.Tensor`) is
                 returned.
         """
+
+        match stego_type:
+            case "encode":
+                assert payload_or_image is not None
+            case "decode":
+                assert payload_or_image is None
+            case _:
+                raise AttributeError("stego_type must be one of [\"encode\", \"decode\"]")
+        
         # 0. Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
         width = width or self.unet.config.sample_size * self.vae_scale_factor
@@ -580,6 +499,10 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in keys])
         s_churn = 1.0
 
+        # i want facts about the scheduler!
+        sched = self.scheduler
+        print(f"sched sigmas are {sched.sigmas}")
+
         # 9. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
@@ -607,27 +530,36 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                     noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                if stego_type is None:
-                    latents = self.scheduler.step(noise_pred, t, latents).prev_sample
+                if i not in [self.num_timesteps-2]:
+                    latents = self.scheduler.step(noise_pred, t, latents, s_churn=0, generator=g_k_s).prev_sample
                 else:
-                    if i in [self.num_timesteps-2]:
-                        latents_0 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, generator=g_k_0).prev_sample
-                        self.scheduler._step_index = None
-                        latents_1 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, generator=g_k_1).prev_sample
-                        self.scheduler._step_index = None
-                        match stego_type:
-                            case "encode":
-                                latents[:, :, :] = mix_samples_using_payload(payload_or_image, None, latents_0, latents_1, device, verbose=False)
-                            case "decode":
-                                # to avoid doing an extra pass for each latent, double 
-                                latents = torch.cat([latents_0, latents_1])
-                                image_latents = torch.cat([image_latents, image_latents])
-                                image_embeddings = torch.cat([image_embeddings, image_embeddings])
-                                added_time_ids = torch.cat([added_time_ids, added_time_ids])
-                            case _:
-                                raise AttributeError("stego_type must be one of [None, \"encode\", \"decode\"]")
-                    else:
-                        latents = self.scheduler.step(noise_pred, t, latents).prev_sample
+                    rate = estimate_rate(self, latents)
+                    
+                    sigma = sched.sigmas[sched.step_index]
+                    gamma = min(s_churn / (len(sched.sigmas) - 1), 2**0.5 - 1)
+                    # s_noise = 1
+                    s_noise = 10 ** 2
+                    sigma_hat = sigma * (gamma + 1)
+                    print(f"sched sigma is {sigma}")
+                    print(f"sched gamma is {gamma}")
+                    print(f"sched mult factor is {s_noise * (sigma_hat**2 - sigma**2) ** 0.5}")
+                    
+                    latents_0 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, s_noise=s_noise, generator=g_k_0).prev_sample
+                    self.scheduler._step_index = None
+                    latents_1 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, s_noise=s_noise, generator=g_k_1).prev_sample
+                    self.scheduler._step_index = None
+
+                    if stego_type == "encode":
+                        print(f"latents {latents.shape}")
+                        print("boutta mix")
+                        latents[:, :] = mix_samples_using_payload(payload_or_image, rate, latents_0, latents_1, device)
+                        latents = latents.permute((0, 2, 1, 3, 4))
+                    elif stego_type == "decode":
+                        # to avoid doing an extra pass for each latent, double 
+                        latents = torch.cat([latents_0, latents_1])
+                        image_latents = torch.cat([image_latents, image_latents])
+                        image_embeddings = torch.cat([image_embeddings, image_embeddings])
+                        added_time_ids = torch.cat([added_time_ids, added_time_ids])
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}
@@ -654,7 +586,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         if not return_dict:
             return frames
 
-        return StegoStableVideoDiffusionPipelineOutput(frames=frames)
+        return {"frames": frames, "rate": rate}
 
 
 # resizing utils
@@ -764,3 +696,70 @@ def _gaussian_blur2d(input, kernel_size, sigma):
     out = _filter2d(out_x, kernel_y[..., None])
 
     return out
+
+def _append_dims(x, target_dims):
+    """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
+    dims_to_append = target_dims - x.ndim
+    if dims_to_append < 0:
+        raise ValueError(f"input has {x.ndim} dims but target_dims is {target_dims}, which is less")
+    return x[(...,) + (None,) * dims_to_append]
+
+
+# Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.retrieve_timesteps
+def retrieve_timesteps(
+    scheduler,
+    num_inference_steps: Optional[int] = None,
+    device: Optional[Union[str, torch.device]] = None,
+    timesteps: Optional[List[int]] = None,
+    sigmas: Optional[List[float]] = None,
+    **kwargs,
+):
+    """
+    Calls the scheduler's `set_timesteps` method and retrieves timesteps from the scheduler after the call. Handles
+    custom timesteps. Any kwargs will be supplied to `scheduler.set_timesteps`.
+
+    Args:
+        scheduler (`SchedulerMixin`):
+            The scheduler to get timesteps from.
+        num_inference_steps (`int`):
+            The number of diffusion steps used when generating samples with a pre-trained model. If used, `timesteps`
+            must be `None`.
+        device (`str` or `torch.device`, *optional*):
+            The device to which the timesteps should be moved to. If `None`, the timesteps are not moved.
+        timesteps (`List[int]`, *optional*):
+            Custom timesteps used to override the timestep spacing strategy of the scheduler. If `timesteps` is passed,
+            `num_inference_steps` and `sigmas` must be `None`.
+        sigmas (`List[float]`, *optional*):
+            Custom sigmas used to override the timestep spacing strategy of the scheduler. If `sigmas` is passed,
+            `num_inference_steps` and `timesteps` must be `None`.
+
+    Returns:
+        `Tuple[torch.Tensor, int]`: A tuple where the first element is the timestep schedule from the scheduler and the
+        second element is the number of inference steps.
+    """
+    if timesteps is not None and sigmas is not None:
+        raise ValueError("Only one of `timesteps` or `sigmas` can be passed. Please choose one to set custom values")
+    if timesteps is not None:
+        accepts_timesteps = "timesteps" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accepts_timesteps:
+            raise ValueError(
+                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+                f" timestep schedules. Please check whether you are using the correct scheduler."
+            )
+        scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    elif sigmas is not None:
+        accept_sigmas = "sigmas" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accept_sigmas:
+            raise ValueError(
+                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+                f" sigmas schedules. Please check whether you are using the correct scheduler."
+            )
+        scheduler.set_timesteps(sigmas=sigmas, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    else:
+        scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+    return timesteps, num_inference_steps

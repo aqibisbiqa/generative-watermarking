@@ -96,11 +96,20 @@ def prepare_image(image_path, target_height=576, target_width=1024):
     return image
 
 def mix_samples_using_payload(payload, rate, samp_0, samp_1, device, verbose=False):
+    if samp_0.dim() == 5:
+        # video -- permute to [batch, channels, frames, h, w]
+        samp_0 = samp_0.permute((0, 2, 1, 3, 4))
+        samp_1 = samp_1.permute((0, 2, 1, 3, 4))
+    print(f"mix input {samp_0.shape}")
     m_ecc = ecc.ecc_encode(payload, rate)
     m_ecc.resize(samp_0[0, 0].shape, refcheck=False)
-    if verbose: print("### Message BEFORE Transmission ###", m_ecc, "#"*35, sep="\n")
     m_ecc = torch.from_numpy(m_ecc).to(device)
-    return torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
+    res = torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
+    if samp_0.dim() == 5:
+        # video -- permute back to [batch, frames, channels, h, w]
+        samp_0 = samp_0.permute((0, 2, 1, 3, 4))
+        samp_1 = samp_1.permute((0, 2, 1, 3, 4))
+    return res
 
 def decode_message_from_image_diffs(img, img_0, img_1, rate, verbose=False):
     diffs_0 = torch.norm(img - img_0, dim=(0, 1))
