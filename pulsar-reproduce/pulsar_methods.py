@@ -51,7 +51,8 @@ class Pulsar():
 
         # Synchronize settings
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
-        timesteps = self.timesteps
+        # timesteps = self.timesteps
+        timesteps = 25
         
         s_churn = 1.0
         # height = 576
@@ -96,8 +97,9 @@ class Pulsar():
 
         # Save optionally
         if self.save_images:
-            # self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0].save("logging/images/encode_video.mp4")
-            pass
+            gif_path = "logging/videos/encode_video.gif"
+            processed_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0]
+            processed_frames[0].save(gif_path, save_all=True, append_images=processed_frames[1:], optimize=False, duration=100, loop=0)
 
         return frames
 
@@ -601,7 +603,8 @@ class Pulsar():
         
         # Synchronize settings
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
-        timesteps = self.timesteps
+        # timesteps = self.timesteps
+        timesteps = 25
 
         s_churn = 1.0
         # height = 576
@@ -647,10 +650,12 @@ class Pulsar():
 
         # Save optionally
         if self.save_images:
-            # self.pipe.video_processor.postprocess_video(video=frames_0, output_type="pil")[0].save("logging/images/decode_video_0.mp4")
-            pass
-            # self.pipe.video_processor.postprocess_video(video=frames_1, output_type="pil")[0].save("logging/images/decode_video_1.mp4")
-            pass
+            gif_path = "logging/videos/decode_video_0.gif"
+            processed_frames_0 = self.pipe.video_processor.postprocess_video(video=frames_0, output_type="pil")[0]
+            processed_frames_0[0].save(gif_path, save_all=True, append_images=processed_frames_0[1:], optimize=False, duration=100, loop=0)
+            gif_path = "logging/videos/decode_video_1.gif"
+            processed_frames_1 = self.pipe.video_processor.postprocess_video(video=frames_1, output_type="pil")[0]
+            processed_frames_1[0].save(gif_path, save_all=True, append_images=processed_frames_1[1:], optimize=False, duration=100, loop=0)
 
         ######################
         # Online phase       #
@@ -672,7 +677,10 @@ class Pulsar():
                 frame_to_latent = lambda frame : self.pipe.vae.encode(frame).latent_dist.mode() * self.pipe.vae.config.scaling_factor
             else:
                 frame_to_latent = lambda frame : self.pipe.vae.encode(frame).latents * self.pipe.vae.config.scaling_factor
-            return frame_to_latent(frames)
+            frames = frame_to_latent(frames)
+            frames = frames.permute((1, 0, 2, 3))
+            frames = torch.unsqueeze(frames, 0)
+            return frames
 
         print(f"before vae inversion, frames_0 is {frames_0.shape}")
         show = 4
@@ -691,11 +699,11 @@ class Pulsar():
 
             # debugging
         if self.debug or True:
-            print(latents[0, 0, :show, :show].numpy(force=True))
-            print(latents_0[0, 0, :show, :show].numpy(force=True))
-            print(latents_1[0, 0, :show, :show].numpy(force=True))
+            print(latents[0, 0, 0, :show, :show].numpy(force=True))
+            print(latents_0[0, 0, 0, :show, :show].numpy(force=True))
+            print(latents_1[0, 0, 0, :show, :show].numpy(force=True))
 
-        m = self._decode_message_from_image_diffs(latents[:1], latents_0[:1], latents_1[:1], rate, verbose)
+        m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, rate, verbose)
         return m
 
     def _decode_video_old(self, frames, verbose=False):

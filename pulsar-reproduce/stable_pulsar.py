@@ -34,7 +34,8 @@ def main(args):
             print("#"*75)
             # img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
-            m_sz = 1500
+            # m_sz = 1500
+            m_sz = 7168
             np.random.seed(0)
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
             k = (10, 11, 12)

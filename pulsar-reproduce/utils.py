@@ -105,6 +105,7 @@ def mix_samples_using_payload(payload, rate, samp_0, samp_1, device, verbose=Fal
     m_ecc.resize(samp_0[0, 0].shape, refcheck=False)
     m_ecc = torch.from_numpy(m_ecc).to(device)
     res = torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
+    print(res.shape)
     if samp_0.dim() == 5:
         # video -- permute back to [batch, frames, channels, h, w]
         samp_0 = samp_0.permute((0, 2, 1, 3, 4))

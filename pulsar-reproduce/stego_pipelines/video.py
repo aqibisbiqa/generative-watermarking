@@ -538,7 +538,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                     sigma = sched.sigmas[sched.step_index]
                     gamma = min(s_churn / (len(sched.sigmas) - 1), 2**0.5 - 1)
                     # s_noise = 1
-                    s_noise = 10 ** 2
+                    s_noise = 10 ** 1
                     sigma_hat = sigma * (gamma + 1)
                     print(f"sched sigma is {sigma}")
                     print(f"sched gamma is {gamma}")
@@ -550,10 +550,14 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                     self.scheduler._step_index = None
 
                     if stego_type == "encode":
+                        latents = latents.permute((0, 2, 1, 3, 4))
                         print(f"latents {latents.shape}")
                         print("boutta mix")
                         latents[:, :] = mix_samples_using_payload(payload_or_image, rate, latents_0, latents_1, device)
                         latents = latents.permute((0, 2, 1, 3, 4))
+                        print(f"latents {latents.shape}")
+                        print(f"latents_0 {latents_0.shape}")
+                        print(f"latents_1 {latents_1.shape}")
                     elif stego_type == "decode":
                         # to avoid doing an extra pass for each latent, double 
                         latents = torch.cat([latents_0, latents_1])
