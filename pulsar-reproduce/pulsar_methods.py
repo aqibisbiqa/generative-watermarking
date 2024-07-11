@@ -22,6 +22,7 @@ class Pulsar():
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.save_images = save_images
         self.debug = debug
+        self.iters = 0
 
     ################################################################################################################################
     # ENCODING METHODS
@@ -29,6 +30,7 @@ class Pulsar():
     
     @torch.no_grad()
     def encode(self, m: str, verbose=False):
+        self.iters += 1
         cls_name = self.pipe.__class__.__name__
         match cls_name:
             case "StegoStableVideoDiffusionPipeline":
@@ -97,7 +99,7 @@ class Pulsar():
 
         # Save optionally
         if self.save_images:
-            gif_path = "logging/videos/encode_video.gif"
+            gif_path = f"logging/videos/{self.iters}_encode_video.gif"
             processed_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0]
             processed_frames[0].save(gif_path, save_all=True, append_images=processed_frames[1:], optimize=False, duration=100, loop=0)
 
@@ -362,7 +364,7 @@ class Pulsar():
         
         # Save optionally
         if self.save_images: 
-            processed_img.save("logging/images/encode_latent.png")
+            processed_img.save(f"logging/images/latent/{self.iters}_encode_latent.png")
         
         return img
 
@@ -484,7 +486,7 @@ class Pulsar():
 
         # Save optionally
         if self.save_images: 
-            self.pipe.image_processor.postprocess(img, output_type="pil")[0].save("logging/images/encode_latent.png")
+            self.pipe.image_processor.postprocess(img, output_type="pil")[0].save(f"logging/images/latent/{self.iters}_encode_latent.png")
         
         return img
 
@@ -508,7 +510,8 @@ class Pulsar():
         img = pipeline_output["images"]
 
         # Optionally save image
-        if self.save_images: utils.process_pixel(img)[0].save("logging/images/encode_pixel.png")
+        if self.save_images: 
+            utils.process_pixel(img)[0].save(f"logging/images/pixel/{self.iters}_encode_pixel.png")
         
         return img
     
@@ -565,7 +568,7 @@ class Pulsar():
         img = scheduler.step(residual, t, samp).prev_sample
 
         # Optionally save image
-        if self.save_images: utils.process_pixel(img)[0].save("logging/images/encode_pixel.png")
+        if self.save_images: utils.process_pixel(img)[0].save(f"logging/images/pixel/{self.iters}_encode_pixel.png")
         
         return img
     
@@ -650,10 +653,10 @@ class Pulsar():
 
         # Save optionally
         if self.save_images:
-            gif_path = "logging/videos/decode_video_0.gif"
+            gif_path = f"logging/videos/{self.iters}_decode_video_0.gif"
             processed_frames_0 = self.pipe.video_processor.postprocess_video(video=frames_0, output_type="pil")[0]
             processed_frames_0[0].save(gif_path, save_all=True, append_images=processed_frames_0[1:], optimize=False, duration=100, loop=0)
-            gif_path = "logging/videos/decode_video_1.gif"
+            gif_path = f"logging/videos/{self.iters}_decode_video_1.gif"
             processed_frames_1 = self.pipe.video_processor.postprocess_video(video=frames_1, output_type="pil")[0]
             processed_frames_1[0].save(gif_path, save_all=True, append_images=processed_frames_1[1:], optimize=False, duration=100, loop=0)
 
@@ -1020,8 +1023,8 @@ class Pulsar():
 
         # Save optionally
         if self.save_images:
-            processed_img_0.save("logging/images/decode_latent_0.png")
-            processed_img_1.save("logging/images/decode_latent_1.png")
+            processed_img_0.save(f"logging/images/latent/{self.iters}_decode_latent_0.png")
+            processed_img_1.save(f"logging/images/latent/{self.iters}_decode_latent_1.png")
 
         ######################
         # Online phase       #
@@ -1185,8 +1188,8 @@ class Pulsar():
 
         # Save optionally
         if self.save_images:
-            self.pipe.image_processor.postprocess(img_0, output_type="pil")[0].save("logging/images/decode_latent_0.png")
-            self.pipe.image_processor.postprocess(img_1, output_type="pil")[0].save("logging/images/decode_latent_1.png")
+            self.pipe.image_processor.postprocess(img_0, output_type="pil")[0].save(f"logging/images/latent/{self.iters}_decode_latent_0.png")
+            self.pipe.image_processor.postprocess(img_1, output_type="pil")[0].save(f"logging/images/latent/{self.iters}_decode_latent_1.png")
 
         ######################
         # Online phase       #
@@ -1244,8 +1247,9 @@ class Pulsar():
         rate = pipeline_output["rate"]
 
         # Optionally save images
-        if self.save_images: utils.process_pixel(img_0)[0].save("logging/images/decode_pixel_0.png")
-        if self.save_images: utils.process_pixel(img_1)[0].save("logging/images/decode_pixel_1.png")
+        if self.save_images: 
+            utils.process_pixel(img_0)[0].save(f"logging/images/pixel/{self.iters}_decode_pixel_0.png")
+            utils.process_pixel(img_1)[0].save(f"logging/images/pixel/{self.iters}_decode_pixel_1.png")
 
         ######################
         # Online phase       #
@@ -1300,8 +1304,8 @@ class Pulsar():
         img_1 = scheduler.step(residual_1, t, samp_1, eta=eta).prev_sample
 
         # Optionally save images
-        if self.save_images: utils.process_pixel(img_0)[0].save("logging/images/decode_pixel_0.png")
-        if self.save_images: utils.process_pixel(img_1)[0].save("logging/images/decode_pixel_1.png")
+        if self.save_images: utils.process_pixel(img_0)[0].save(f"logging/images/pixel/{self.iters}_decode_pixel_0.png")
+        if self.save_images: utils.process_pixel(img_1)[0].save(f"logging/images/pixel/{self.iters}_decode_pixel_1.png")
 
         ######################
         # Online phase       #

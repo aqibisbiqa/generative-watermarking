@@ -100,12 +100,10 @@ def mix_samples_using_payload(payload, rate, samp_0, samp_1, device, verbose=Fal
         # video -- permute to [batch, channels, frames, h, w]
         samp_0 = samp_0.permute((0, 2, 1, 3, 4))
         samp_1 = samp_1.permute((0, 2, 1, 3, 4))
-    print(f"mix input {samp_0.shape}")
     m_ecc = ecc.ecc_encode(payload, rate)
     m_ecc.resize(samp_0[0, 0].shape, refcheck=False)
     m_ecc = torch.from_numpy(m_ecc).to(device)
     res = torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
-    print(res.shape)
     if samp_0.dim() == 5:
         # video -- permute back to [batch, frames, channels, h, w]
         samp_0 = samp_0.permute((0, 2, 1, 3, 4))
@@ -140,3 +138,6 @@ def calc_acc(m: np.ndarray, out: np.ndarray, bitwise=True):
     print(out[:show])
     print(sum(out))
     return len(np.where(m==out)[0]) / m.size
+
+def calc_channel_capacity(bytes_encoded, accuracy):
+    pass

@@ -25,25 +25,25 @@ def main(args):
         raise Exception("use gpu sir")
 
     pipe = get_pipeline(args.model, device, args.old)
-    # pipe = pipe.to(device)
     
     ### Experiment Loop ###
     accs, i = [], 0
+    derandomize = False
+    if derandomize: np.random.seed(0)
+    p = Pulsar(pipe)
     while i < args.iters:
         # try:
             print("#"*75)
             # img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
-            # m_sz = 1500
-            m_sz = 7168
-            np.random.seed(0)
+            k = np.random.randint(1000, size=(3,))
+            m_sz = 10000
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
-            k = (10, 11, 12)
-            # k = tuple(int(r) for r in np.random.randint(1000, size=(3,)))
             print(f"Iteration {i+1} using keys {k}")
-            prompt = "Portrait photo of a man with mustache."
+            prompt = "A man with a mustache."
             # prompt = "A photo of a cat."
-            p = Pulsar(pipe, k, args.timesteps, prompt=prompt)
+            p.keys = k
+            p.prompt = prompt
             print("ENCODING")
             img = p.encode(m, verbose=args.verbose)
             print("DECODING")
@@ -59,6 +59,7 @@ def main(args):
             accs.append(acc)
             print(f"Run accuracy {acc:.2%}")
             i += 1
+            # plot parietal? curves
     
     torch.cuda.empty_cache()
     ### Print Output ###
