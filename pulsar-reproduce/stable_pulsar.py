@@ -64,7 +64,7 @@ def main(args):
     torch.cuda.empty_cache()
     ### Print Output ###
     print("#"*75)
-    print(f"Final Average Accuracy {np.mean(accs):.2%}")
+    print(f"Final Average Accuracy {np.mean(accs):.2%} +/- {np.std(accs):.2%}")
     return accs
 
 if __name__ == '__main__':

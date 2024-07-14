@@ -24,6 +24,8 @@ class Pulsar():
         self.debug = debug
         self.iters = 0
 
+        self.input_image_location = "logging/images/for_svd/bearded_man.jpg"
+
     ################################################################################################################################
     # ENCODING METHODS
     ################################################################################################################################
@@ -68,7 +70,7 @@ class Pulsar():
         num_videos_per_prompt = 1
         batch_size = 1
 
-        image = utils.prepare_image("logging/images/for_svd/input_sample.png", height, width)
+        image = utils.prepare_image(self.input_image_location, height, width)
         needs_upcasting = self.pipe.vae.dtype == torch.float16 and self.pipe.vae.config.force_upcast
 
         # Conduct pipeline
@@ -125,7 +127,7 @@ class Pulsar():
 
         # Initialize nonlocals for later
         latents = None
-        image = utils.prepare_image("logging/images/for_svd/input_sample.png", height, width)
+        image = utils.prepare_image(self.input_image_location, height, width)
 
         # For latent models, use callback to interact with denoising loop
         def _enc_callback(pipe, step_index, timestep, callback_kwargs):
@@ -268,7 +270,7 @@ class Pulsar():
             print(latents_1[0, 0, 0, :show, :show])
 
             # Encode payload and use it to mix the two latents 
-            latents[:, :, :] = self._mix_samples_using_payload(m, rate, latents_0, latents_1, verbose)
+            latents[:, :, :] = utils.mix_samples_using_payload(m, rate, latents_0, latents_1, self.device, verbose)
             
             print(latents[0, 0, 0, :show, :show])
 
@@ -441,7 +443,7 @@ class Pulsar():
             latents_1 = pipe.scheduler.step(noise_pred, timestep, latents, **extra_step_kwargs_1, return_dict=False)[0]
             
             # Encode payload and use it to mix the two latents 
-            latents[:, :] = self._mix_samples_using_payload(m, rate, latents_0, latents_1, verbose)
+            latents[:, :] = utils.mix_samples_using_payload(m, rate, latents_0, latents_1, self.device, verbose)
             
             # Perform T'th denoising step (deterministic)
             step_index += 1
@@ -560,7 +562,7 @@ class Pulsar():
         samp_1 = scheduler.step(residual, t, samp, generator=g_k_1, eta=eta).prev_sample
 
         # Encode payload and use it to mix the two samples pixelwise
-        samp[:, :] = self._mix_samples_using_payload(m, rate, samp_0, samp_1, verbose)
+        samp[:, :] = utils.mix_samples_using_payload(m, rate, samp_0, samp_1, self.device, verbose)
 
         # Perform T'th denoising step (deterministic)
         t = scheduler.timesteps[-1]  ### LAST STEP ###
@@ -621,7 +623,7 @@ class Pulsar():
         num_videos_per_prompt = 1
         batch_size = 1
         
-        image = utils.prepare_image("logging/images/for_svd/input_sample.png", height, width)
+        image = utils.prepare_image(self.input_image_location, height, width)
         needs_upcasting = self.pipe.vae.dtype == torch.float16 and self.pipe.vae.config.force_upcast
         
         # Conduct pipeline
@@ -731,7 +733,7 @@ class Pulsar():
         latents_0 = None
         latents_1 = None
         rate = None
-        image = utils.prepare_image("logging/images/for_svd/input_sample.png", height, width)
+        image = utils.prepare_image(self.input_image_location, height, width)
 
         # For latent models, use callback to get latents prior to vae decode
         def _dec_callback(pipe, step_index, timestep, callback_kwargs):
