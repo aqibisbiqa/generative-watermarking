@@ -23,7 +23,7 @@ class Pulsar():
         self.save_images = save_images
         self.debug = debug
         self.iters = 0
-        self.process_type = "pil" # ["pt", "pil", "unproc"]
+        self.process_type = "pt" # ["pt", "pil", "unproc"]
 
         sample_images = [
             "input_sample.png",
@@ -84,7 +84,7 @@ class Pulsar():
         # Conduct pipeline
         pipeline_output = self.pipe(
             stego_type="encode",
-            payload_or_image=m,
+            payload=m,
             keys = self.keys,
             output_type="latent",
             image=image,
@@ -355,7 +355,7 @@ class Pulsar():
         # Conduct pipeline
         pipeline_output = self.pipe(
             stego_type="encode",
-            payload_or_image=m,
+            payload=m,
             keys = self.keys,
             output_type="latent",
             prompt=self.prompt,
@@ -521,7 +521,7 @@ class Pulsar():
             return_dict=True,
             stego_type="encode",
             keys=self.keys,
-            payload_or_image=m,
+            payload=m,
         )
 
         img = pipeline_output["images"]

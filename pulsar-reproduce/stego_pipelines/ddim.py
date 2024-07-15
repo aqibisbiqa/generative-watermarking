@@ -84,7 +84,7 @@ class StegoDDIMPipeline(DiffusionPipeline):
 
         if stego_type == "encode":
             # Encode payload and use it to mix the two samples pixelwise
-            image[:, :] = mix_samples_using_payload(payload, rate, image_0, image_1, device)
+            image[:, :] = mix_samples_using_payload(payload, rate, image_0, image_1)
 
             # Perform T'th denoising step (deterministic)
             t = self.scheduler.timesteps[-1]  ### LAST STEP ###
