@@ -24,7 +24,14 @@ class Pulsar():
         self.debug = debug
         self.iters = 0
 
-        self.input_image_location = "logging/images/for_svd/bearded_man.jpg"
+        sample_images = [
+            "input_sample.png",
+            "bearded_man.jpg",
+            "dog_run.jpg",
+            "low_res_cat.jpg",
+        ]
+
+        self.input_image_location = f"logging/images/for_svd/{sample_images[3]}"
 
     ################################################################################################################################
     # ENCODING METHODS
