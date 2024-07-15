@@ -318,7 +318,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         return_dict: bool = True,
         keys: tuple = (10, 11, 12),
-        payload_or_image = None,
+        payload = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -394,9 +394,9 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
 
         match stego_type:
             case "encode":
-                assert payload_or_image is not None
+                assert payload is not None
             case "decode":
-                assert payload_or_image is None
+                assert payload is None
             case _:
                 raise AttributeError("stego_type must be one of [\"encode\", \"decode\"]")
         
@@ -553,7 +553,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                         latents = latents.permute((0, 2, 1, 3, 4))
                         print(f"latents {latents.shape}")
                         print("boutta mix")
-                        latents[:, :] = mix_samples_using_payload(payload_or_image, rate, latents_0, latents_1, device)
+                        latents[:, :] = mix_samples_using_payload(payload, rate, latents_0, latents_1, device)
                         latents = latents.permute((0, 2, 1, 3, 4))
                         print(f"latents {latents.shape}")
                         print(f"latents_0 {latents_0.shape}")

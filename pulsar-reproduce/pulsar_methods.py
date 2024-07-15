@@ -23,6 +23,7 @@ class Pulsar():
         self.save_images = save_images
         self.debug = debug
         self.iters = 0
+        self.process_type = "pil" # ["pt", "pil", "unproc"]
 
         sample_images = [
             "input_sample.png",
@@ -369,12 +370,19 @@ class Pulsar():
         img = self.pipe.vae.decode(latents / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
 
         # Image processing
-        processed_img = self.pipe.image_processor.postprocess(img, output_type="pil")[0]
+        pt_img = self.pipe.image_processor.postprocess(img, output_type="pt")
+        pil_img = self.pipe.image_processor.postprocess(img, output_type="pil")[0]
         
         # Save optionally
         if self.save_images: 
-            processed_img.save(f"logging/images/latent/{self.iters}_encode_latent.png")
-        
+            pil_img.save(f"logging/images/latent/{self.iters}_encode_latent.png")
+
+        # Output handling
+        if self.process_type == "pt":
+            img = pt_img
+        elif self.process_type == "pil":
+            img = pil_img
+            
         return img
 
     def _encode_latent_old(self, m: str, verbose=False):
@@ -1027,22 +1035,43 @@ class Pulsar():
         img_1 = self.pipe.vae.decode(latents_1 / self.pipe.vae.config.scaling_factor, return_dict=False, generator=g_k_s)[0]
 
         # Image processing
-        processed_img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pil")[0]
-        processed_img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil")[0]
+        pt_img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pt")
+        pt_img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pt")
+        pil_img_0 = self.pipe.image_processor.postprocess(img_0, output_type="pil")[0]
+        pil_img_1 = self.pipe.image_processor.postprocess(img_1, output_type="pil")[0]
 
         # Save optionally
         if self.save_images:
-            processed_img_0.save(f"logging/images/latent/{self.iters}_decode_latent_0.png")
-            processed_img_1.save(f"logging/images/latent/{self.iters}_decode_latent_1.png")
+            pil_img_0.save(f"logging/images/latent/{self.iters}_decode_latent_0.png")
+            pil_img_1.save(f"logging/images/latent/{self.iters}_decode_latent_1.png")
+        
+        # Output processing
+        if self.process_type == "pt":
+            img_0 = pt_img_0
+            img_1 = pt_img_1
+        elif self.process_type == "pil":
+            img_0 = pil_img_0
+            img_1 = pil_img_1
 
         ######################
         # Online phase       #
         ######################
+
+        def _undo_processing(image):
+            if self.process_type == "pil":
+                image = torch.unsqueeze(pil_to_tensor(image).to(torch.float16).to(self.device), 0) / 255
+                image = (image - 0.5) * 2
+            elif self.process_type == "pt":
+                image = (image - 0.5) * 2
+            return image
+
+        if self.process_type:
+            img = _undo_processing(img)
+            img_0 = _undo_processing(img_0)
+            img_1 = _undo_processing(img_1)
         
         # Undo VAE (via VAE encode)
         def _invert_vae(image, sample_mode="sample"):
-            # image = pil_to_tensor(image).to(torch.float16).to(self.device)
-            # image = torch.unsqueeze(image, 0)
             if sample_mode == "sample":
                 img_to_latent = lambda image : self.pipe.vae.encode(image).latent_dist.sample(g_k_s) * self.pipe.vae.config.scaling_factor
             elif sample_mode == "mode":

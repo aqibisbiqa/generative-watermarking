@@ -110,14 +110,14 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
         ] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         keys: tuple = (10, 11, 12),
-        payload_or_image = None,
+        payload = None,
         **kwargs,
     ):
         match stego_type:
             case "encode":
-                assert payload_or_image is not None
+                assert payload is not None
             case "decode":
-                assert payload_or_image is None
+                assert payload is None
             case _:
                 raise AttributeError("stego_type must be one of [\"encode\", \"decode\"]")
 
@@ -283,7 +283,7 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
                     latents_0 = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_0, return_dict=False)[0]
                     latents_1 = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_1, return_dict=False)[0]
                     if stego_type == "encode":
-                        latents = mix_samples_using_payload(payload_or_image, rate, latents_0, latents_1, device)
+                        latents = mix_samples_using_payload(payload, rate, latents_0, latents_1, device)
                     elif stego_type == "decode":
                         # to avoid doing an extra pass for each latent, double 
                         latents = torch.cat([latents_0, latents_1])

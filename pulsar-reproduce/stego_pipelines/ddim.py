@@ -37,14 +37,14 @@ class StegoDDIMPipeline(DiffusionPipeline):
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
         keys: tuple = (10, 11, 12),
-        payload_or_image = None,
+        payload = None,
     ) -> Union[ImagePipelineOutput, Tuple]:
 
         match stego_type:
             case "encode":
-                assert payload_or_image is not None
+                assert payload is not None
             case "decode":
-                assert payload_or_image is None
+                assert payload is None
             case _:
                 raise AttributeError("stego_type must be one of [\"encode\", \"decode\"]")
 
@@ -84,7 +84,7 @@ class StegoDDIMPipeline(DiffusionPipeline):
 
         if stego_type == "encode":
             # Encode payload and use it to mix the two samples pixelwise
-            image[:, :] = mix_samples_using_payload(payload_or_image, rate, image_0, image_1, device)
+            image[:, :] = mix_samples_using_payload(payload, rate, image_0, image_1, device)
 
             # Perform T'th denoising step (deterministic)
             t = self.scheduler.timesteps[-1]  ### LAST STEP ###
