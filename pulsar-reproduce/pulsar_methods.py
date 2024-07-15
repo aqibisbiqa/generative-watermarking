@@ -23,16 +23,16 @@ class Pulsar():
         self.save_images = save_images
         self.debug = debug
         self.iters = 0
-        self.process_type = "pt" # ["pt", "pil", "unproc"]
+        self.process_type = "pt" # ["pt", "pil", "na"]
 
-        sample_images = [
+        image_for_svd = [
             "input_sample.png",
             "bearded_man.jpg",
             "dog_run.jpg",
             "low_res_cat.jpg",
         ]
 
-        self.input_image_location = f"logging/images/for_svd/{sample_images[3]}"
+        self.input_image_location = f"logging/images/for_svd/{image_for_svd[1]}"
 
     ################################################################################################################################
     # ENCODING METHODS
@@ -70,7 +70,8 @@ class Pulsar():
         # height = 576
         # width = 1024
         height, width = 512, 512
-        num_frames = self.pipe.unet.config.num_frames
+        # num_frames = self.pipe.unet.config.num_frames
+        num_frames = 15
         decode_chunk_size = num_frames // 4
         fps = 7
         motion_bucket_id = 127
@@ -107,11 +108,20 @@ class Pulsar():
             self.pipe.vae.to(dtype=torch.float16)
         frames = self.pipe.decode_latents(latents, num_frames, decode_chunk_size)
 
+        # Post-processing
+        pt_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pt")
+        pil_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0]
+
         # Save optionally
         if self.save_images:
             gif_path = f"logging/videos/{self.iters}_encode_video.gif"
-            processed_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0]
-            processed_frames[0].save(gif_path, save_all=True, append_images=processed_frames[1:], optimize=False, duration=100, loop=0)
+            pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], optimize=False, duration=100, loop=0)
+
+        # Output processing
+        if self.process_type == "pt":
+            frames = pt_frames
+        elif self.process_type == "pil":
+            frames = pil_frames
 
         return frames
 
@@ -630,7 +640,8 @@ class Pulsar():
         # height = 576
         # width = 1024
         height, width = 512, 512
-        num_frames = self.pipe.unet.config.num_frames
+        # num_frames = self.pipe.unet.config.num_frames
+        num_frames = 15
         decode_chunk_size = num_frames // 4
         fps = 7
         motion_bucket_id = 127
@@ -668,18 +679,44 @@ class Pulsar():
         frames_0 = self.pipe.decode_latents(latents_0, num_frames, decode_chunk_size)
         frames_1 = self.pipe.decode_latents(latents_1, num_frames, decode_chunk_size)
 
+        # Post-processing
+        pt_frames_0 = self.pipe.video_processor.postprocess_video(video=frames_0, output_type="pt")
+        pt_frames_1 = self.pipe.video_processor.postprocess_video(video=frames_1, output_type="pt")
+        pil_frames_0 = self.pipe.video_processor.postprocess_video(video=frames_0, output_type="pil")[0]
+        pil_frames_1 = self.pipe.video_processor.postprocess_video(video=frames_1, output_type="pil")[0]
+
         # Save optionally
         if self.save_images:
             gif_path = f"logging/videos/{self.iters}_decode_video_0.gif"
-            processed_frames_0 = self.pipe.video_processor.postprocess_video(video=frames_0, output_type="pil")[0]
-            processed_frames_0[0].save(gif_path, save_all=True, append_images=processed_frames_0[1:], optimize=False, duration=100, loop=0)
+            pil_frames_0[0].save(gif_path, save_all=True, append_images=pil_frames_0[1:], optimize=False, duration=100, loop=0)
             gif_path = f"logging/videos/{self.iters}_decode_video_1.gif"
-            processed_frames_1 = self.pipe.video_processor.postprocess_video(video=frames_1, output_type="pil")[0]
-            processed_frames_1[0].save(gif_path, save_all=True, append_images=processed_frames_1[1:], optimize=False, duration=100, loop=0)
+            pil_frames_1[0].save(gif_path, save_all=True, append_images=pil_frames_1[1:], optimize=False, duration=100, loop=0)
 
+        # Output processing
+        if self.process_type == "pt":
+            frames_0 = pt_frames_0
+            frames_1 = pt_frames_1
+        elif self.process_type == "pil":
+            frames_0 = pil_frames_0
+            frames_1 = pil_frames_1
+        
         ######################
         # Online phase       #
         ######################
+
+        def _undo_processing(frames):
+            if self.process_type == "pil":
+                frames = torch.stack([pil_to_tensor(frame) for frame in frames]).to(torch.float16).to(self.device)
+                frames = torch.unsqueeze(frames, 0) / 255
+            if self.process_type in ["pil", "pt"]:
+                frames = (frames - 0.5) * 2
+                frames = frames.permute(0, 2, 1, 3, 4)
+            return frames
+
+        if self.process_type:
+            frames = _undo_processing(frames)
+            frames_0 = _undo_processing(frames_0)
+            frames_1 = _undo_processing(frames_1)
         
         # Undo VAE (via VAE encode)
         def _invert_vae(frames, sample_mode="mode"):

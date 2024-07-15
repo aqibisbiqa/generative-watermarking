@@ -28,8 +28,7 @@ def main(args):
     
     ### Experiment Loop ###
     accs, i = [], 0
-    derandomize = False
-    if derandomize: np.random.seed(0)
+    np.random.seed(0)
     p = Pulsar(pipe)
     while i < args.iters:
         # try:
