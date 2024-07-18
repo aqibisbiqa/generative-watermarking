@@ -1,6 +1,7 @@
 from reedmuller.reedmuller import ReedMuller, _dot_product, _vector_reduce, _vector_add
 import numpy as np
 from typing import Union
+import utils
 
 class BRMCode():
     def __init__(self, r, m):
@@ -8,22 +9,34 @@ class BRMCode():
         self.pay_len = self.brm.message_length()
         self.msg_len = self.brm.block_length()
 
-    def encode(self, payload: Union[list, np.ndarray, np.uint8]):
-        if type(payload) is np.uint8:
-            payload = np.unpackbits([payload])
-        if type(payload) is list:
-            payload = np.array(payload)
-        if len(payload) < self.pay_len:
-            payload = np.pad(payload, (0, self.pay_len - len(payload)), "constant", constant_values=(0))
-        enc = self.brm.encode(payload)
+    def encode(self, payload: Union[list, np.ndarray]):
+        enc = utils.apply_op_to_chunks(
+            arr=payload,
+            op=self.brm.encode,
+            chunk_size=self.pay_len,
+        )
+        
+        # if type(payload) is np.uint8:
+        #     payload = np.unpackbits([payload])
+        # if type(payload) is list:
+        #     payload = np.array(payload)
+        # if len(payload) < self.pay_len:
+        #     payload = np.pad(payload, (0, self.pay_len - len(payload)), "constant", constant_values=(0))
+        # enc = self.brm.encode(payload)
         return np.array(enc, dtype=np.uint8)
 
     def decode(self, message: Union[list, np.ndarray]):
-        if type(message) is list:
-            message = np.array(message)
-        if len(message) < self.msg_len:
-            message = np.pad(message, (0, self.msg_len - len(message)), "constant", constant_values=(0))
-        dec = self.brm_decode(message)
+        dec = utils.apply_op_to_chunks(
+            arr=message,
+            op=self.brm_decode,
+            chunk_size=self.msg_len,
+        )
+
+        # if type(message) is list:
+        #     message = np.array(message)
+        # if len(message) < self.msg_len:
+        #     message = np.pad(message, (0, self.msg_len - len(message)), "constant", constant_values=(0))
+        # dec = self.brm_decode(message)
         return np.array(dec, dtype=np.uint8)
     
     def brm_decode(self, eword):
@@ -51,7 +64,9 @@ class BRMCode():
 
                 # If there is a tie, there is nothing we can do.
                 if votes.count(0) == votes.count(1):
-                    word[pos] = 0
+                    # return None ####### original implementation would fail on ties #######
+                    word[pos] = 0   # instead we just default to 0
+                
                 # Otherwise, we set the position to the winner.
                 else:
                     word[pos] = 0 if votes.count(0) > votes.count(1) else 1

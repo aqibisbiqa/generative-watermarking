@@ -31,6 +31,7 @@ class Pulsar():
             "dog_run.jpg",
             "low_res_cat.jpg",
         ]
+        self.video_timesteps = 25
 
         self.input_image_location = f"logging/images/for_svd/{image_for_svd[1]}"
 
@@ -65,6 +66,7 @@ class Pulsar():
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         # timesteps = self.timesteps
         timesteps = 25
+        timesteps = self.video_timesteps
         
         s_churn = 1.0
         # height = 576
@@ -635,6 +637,7 @@ class Pulsar():
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
         # timesteps = self.timesteps
         timesteps = 25
+        timesteps = self.video_timesteps
 
         s_churn = 1.0
         # height = 576

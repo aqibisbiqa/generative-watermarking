@@ -1,6 +1,7 @@
 from . import generalizedReedSolomon
 import numpy as np
 from typing import Union
+import utils
 
 class GRSCode():
     def __init__(self, field_size, msg_len, pay_len,
@@ -21,11 +22,29 @@ class GRSCode():
         )
 
     def encode(self, payload):
-        assert len(payload) == self.pay_len
-        enc = self.grs.encode(payload)
+        payload = np.packbits(payload)  # grs takes bytes, so convert bits to bytes
+        enc = utils.apply_op_to_chunks(
+            arr=payload,
+            op=self.grs.encode,
+            chunk_size=self.pay_len,
+        )
+        enc = np.unpackbits(enc)        # convert from bytes back to bits
+        
+        
+        # assert len(payload) == self.pay_len
+        # enc = self.grs.encode(payload)
         return np.array(enc, dtype=np.uint8)
 
     def decode(self, message):
-        assert len(message) == self.msg_len
-        dec = self.grs.decode(message)
+        message = np.packbits(message)  # grs takes bytes, so convert bits to bytes
+        dec = utils.apply_op_to_chunks(
+            arr=message, 
+            op=self.grs.decode,
+            chunk_size=self.msg_len,
+        )
+        dec = np.unpackbits(dec)        # convert from bytes back to bits
+
+
+        # assert len(message) == self.msg_len
+        # dec = self.grs.grs.decode(message)
         return np.array(dec, dtype=np.uint8)

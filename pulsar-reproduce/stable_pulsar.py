@@ -31,12 +31,13 @@ def main(args):
     np.random.seed(0)
     p = Pulsar(pipe)
     while i < args.iters:
-        # try:
+        try:
             print("#"*75)
             # img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
             k = np.random.randint(1000, size=(3,))
             m_sz = 10000
+            m_sz = 1000
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
             print(f"Iteration {i+1} using keys {k}")
             prompt = "A man with a mustache."
@@ -47,23 +48,24 @@ def main(args):
             img = p.encode(m, verbose=args.verbose)
             print("DECODING")
             out = p.decode(img, verbose=args.verbose)
-        # except ValueError:
-        #     print("stupid broadcast error, retrying")
-        # except ZeroDivisionError:
-        #     print("stupid galois field error, retrying")
-        # else:
+        except ValueError:
+            print("stupid broadcast error, retrying")
+        except ZeroDivisionError:
+            print("stupid galois field error, retrying")
+        else:
             print(f"length of m is {len(m)} bytes")
             print(f"length of out is {len(out)} bytes")
             acc = utils.calc_acc(m, out)
             accs.append(acc)
             print(f"Run accuracy {acc:.2%}")
             i += 1
-            # plot parietal? curves
+            # plot pareto curves
     
     torch.cuda.empty_cache()
     ### Print Output ###
     print("#"*75)
     print(f"Final Average Accuracy {np.mean(accs):.2%} +/- {np.std(accs):.2%}")
+    print(f"{np.round(accs, 2)}")
     return accs
 
 if __name__ == '__main__':

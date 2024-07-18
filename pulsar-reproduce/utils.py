@@ -110,6 +110,20 @@ def mix_samples_using_payload(payload, rate, samp_0, samp_1, verbose=False):
         samp_1 = samp_1.permute((0, 2, 1, 3, 4))
     return res
 
+def decode_message_from_image_diffs(samp, samp_0, samp_1, rate, verbose=False, debug=True):
+    diffs_0 = torch.norm(samp - samp_0, dim=(0, 1))
+    diffs_1 = torch.norm(samp - samp_1, dim=(0, 1))
+
+    if debug:
+        show = 5
+        print(diffs_0[:show, :show])
+        print(diffs_1[:show, :show])
+
+    m_dec = torch.where(diffs_0 < diffs_1, 0, 1).cpu().detach().numpy().astype(int)
+    if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
+    m_dec = m_dec.flatten()
+    return ecc.ecc_recover(m_dec, rate)
+
 def calc_acc(m: np.ndarray, out: np.ndarray, bitwise=True):
     min_len = min(len(m), len(out))
     m = m[:min_len]

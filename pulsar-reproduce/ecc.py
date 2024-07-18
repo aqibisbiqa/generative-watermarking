@@ -10,7 +10,8 @@ from coding.brm import BRMCode
 # @title ECC
 
 def get_code(err_rate):
-    err_rate = 100
+    err_rate = 0.12
+    # err_rate = 100
     if err_rate < 0.05:
         # outer = GeneralizedReedSolomonCode(GF(256)[:255], 200)
         # inner = HammingCode(GF(2), 3)
@@ -46,13 +47,28 @@ def get_code(err_rate):
             GRSCode(field_size=256, msg_len=512, pay_len=200),
             BRMCode(r=1, m=7)
         )
-    no_code = True
-    if no_code: 
-        return None, None
+    # if True: return None, None
     return outer, inner
 
 # Encodes BYTEarray --> BITarray
 def ecc_encode(pay_bytes, rate=None):
+    
+    # get code
+    outer, inner = get_code(rate)
+    
+    # (bytes -> bits)
+    enc = np.unpackbits(pay_bytes)
+
+    # (bits -> bits) OUTER code ENCODES payload
+    if outer is not None:
+        enc = outer.encode(enc)
+
+    # (bits -> bits) INNER code ENCODES payload
+    if inner is not None:
+        enc = inner.encode(enc)
+    
+    if True: return enc
+    
     enc = pay_bytes
     outer, inner = get_code(rate)
 
@@ -76,6 +92,26 @@ def ecc_encode(pay_bytes, rate=None):
 
 # Decodes BITarray --> BYTEarray
 def ecc_recover(msg_bits, rate=None):
+    
+    # get code
+    outer, inner = get_code(rate)
+    
+    # (bits -> bits)
+    dec = msg_bits
+
+    # (bits -> bits) INNER code DECODES message
+    if inner is not None:
+        dec = inner.decode(dec)
+
+    # (bits -> bits) OUTER code DECODES message
+    if outer is not None:
+        dec = outer.decode(dec)
+    
+    # ensure output is array of bytes (bits -> bytes)
+    dec = np.packbits(dec)
+
+    if True: return dec
+
     dec = msg_bits
     outer, inner = get_code(rate)
 
