@@ -142,35 +142,51 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         num_inference_steps = video_length * num_partitions
         queue_length = num_inference_steps
         
+        # Instantiate base video model
         videogen_pipeline = self
-        # videogen_pipeline = StableVideoDiffusionPipeline(
-        #     vae=self.vae,
-        #     image_encoder=self.image_encoder,
-        #     unet=self.unet,
-        #     scheduler=self.scheduler,
-        #     feature_extractor=self.feature_extractor,
-        # ).to(device=device)
-        # videogen_pipeline.enable_xformers_memory_efficient_attention()
 
+        # Create directories for outputs (frames + latents)
         output_dir = "logging/longvideos"
         latents_dir = "logging/longvideos/latents"
 
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(latents_dir, exist_ok=True)
+        
         print("The results will be saved in", output_dir)
         print("The latents will be saved in", latents_dir)
         
-        os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(latents_dir, exist_ok=True)
+        # If latents already produced, skip FIFO process and just VAE decode
+        fifo_proc = not os.path.exists(os.path.join(latents_dir, "fifo.pt"))
+        if fifo_proc:
+            num_vae = new_video_length // (video_length-1)    
+            first_idx = video_length // 2 if lookahead_denoising else 0
 
-        # We require latents from base model output
+            fifo_vae_video_frames = []
+            for i in range(num_vae):
+                target_latents = torch.cat(fifo_first_latents[first_idx+i*(video_length-1):first_idx+(i+1)*(video_length-1)+1], dim=2)
+                video = videogen_pipeline.decode_latents(target_latents, new_video_length, decode_chunk_size)[0]
+
+                if i == 0:
+                    fifo_vae_video_frames.append(video)
+                else:
+                    fifo_vae_video_frames.append(video[1:])
+            
+            if num_vae > 0:
+                fifo_vae_video_frames = torch.cat(fifo_vae_video_frames, dim=0)
+                output_vae_path = os.path.join(output_dir, "fifo_vae.gif")
+                fifo_vae_video_frames[0].save(output_vae_path, save_all=True, append_images=fifo_vae_video_frames[1:], optimize=False, duration=100, loop=0)
+            return
+
+
+        # Acquire latents from an origin video (skip if present)
         is_run_base = not os.path.exists(os.path.join(latents_dir, "video.pt"))
-        # is_run_base = True
         if is_run_base:
             print("will run videogen_pipeline to get base video latents")
             latents = videogen_pipeline(
                 image,
                 height,
                 width,
-                num_frames,
+                video_length,
                 # num_inference_steps,
                 25,
                 sigmas,
@@ -197,8 +213,10 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
             output_path = os.path.join(output_dir, "origin.gif")
             frames[0].save(output_path, save_all=True, append_images=frames[1:], optimize=False, duration=100, loop=0)
         
+        # FIFO scheduler utilizes more inference steps
         videogen_pipeline.scheduler.set_timesteps(num_inference_steps)
     
+        # Prepare latents for FIFO diffusion
         latents = self.prepare_latents_FIFO(
             latents_dir, 
             videogen_pipeline.scheduler,
@@ -209,33 +227,41 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
 
         print(f"latents {latents.shape}")
 
-        # To save individual frames
-        # fifo_dir = os.path.join(output_dir, "fifo_frames")
-        # os.makedirs(fifo_dir, exist_ok=True)
+        # To save individual FIFO frames
+        save_frames = False
+        if save_frames:
+            fifo_dir = os.path.join(output_dir, "fifo_frames")
+            os.makedirs(fifo_dir, exist_ok=True)
         
         fifo_video_frames = []
         fifo_first_latents = []
 
+        # Parameter adjustment
         timesteps = videogen_pipeline.scheduler.timesteps
         indices = np.arange(num_inference_steps)
         # timesteps = torch.flip(timesteps, [0])
+        
+            # Lookahead denoising uses longer queue
         if lookahead_denoising:
             timesteps = torch.cat([torch.full((video_length//2,), timesteps[0]).to(timesteps.device), timesteps])
             indices = np.concatenate([np.full((video_length//2,), 0), indices])
 
+            # Iterate for f + q - l
         num_iterations = new_video_length + num_inference_steps - video_length
 
-        print(f"about to start main loop for {num_iterations} iterations")
-        print(f" video length {video_length}\n queue length {queue_length}\n new video length {new_video_length}")
+        # Primary FIFO denoising loop
         for i in trange(num_iterations):
-            print(f"### STARTING ITERATION {i} ###")
+            # TODO: add multiprocessing support
             num_inference_steps_per_gpu = video_length
+
+            # Lookahead denoising doubles number of partitions
             num_rank = 2 * num_partitions if lookahead_denoising else num_partitions
 
+            # Diagonal denoising loop
             for rank in reversed(range(num_rank)):
-                # print(f"rank {rank}")
+
+                # Identify indices based on rank
                 if lookahead_denoising:
-                    # start_idx = (rank // 2) * num_inference_steps_per_gpu + (rank % 2) * (num_inference_steps_per_gpu // 2)
                     start_idx = rank * (num_inference_steps_per_gpu // 2)
                 else:
                     start_idx = rank * num_inference_steps_per_gpu
@@ -244,12 +270,11 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
 
                 print(f"indexes {start_idx} {midpoint_idx} {end_idx}")
 
+                # Slice timesteps + latents based on rank
                 t = timesteps[start_idx:end_idx]
-                idx = indices[start_idx:end_idx]
-
                 input_latents = latents[:,start_idx:end_idx].clone()
-                print(f"input_latents {input_latents.shape}")
 
+                # FIFO diffusion step
                 output_latents, first_latent, first_frame = self.fifo_onestep(
                     stego_type,
                     image,
@@ -273,16 +298,19 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
                     payload=payload,
                 )
 
+                # Add denoised latents to queue
                 if lookahead_denoising:
                     latents[:,midpoint_idx:end_idx] = output_latents[:,-(end_idx-midpoint_idx):]
                 else:
                     latents[:,start_idx:end_idx] = output_latents
                 del output_latents
 
+            # Shift first {what goes here??} latents to back
             latents = self.shift_latents_FIFO(latents, videogen_pipeline.scheduler)
 
             fifo_first_latents.append(first_latent)
 
+        # Save progress in case decoding errs
         torch.save(fifo_first_latents, os.path.join(latents_dir, "fifo.pt"))
 
         num_vae = new_video_length // (video_length-1)

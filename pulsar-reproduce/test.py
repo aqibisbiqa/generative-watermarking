@@ -15,7 +15,7 @@ image_for_svd = [
 video_timesteps = 25
 height, width = 512, 512
 
-input_image_location = f"logging/images/for_svd/{image_for_svd[1]}"
+input_image_location = f"logging/images/for_svd/{image_for_svd[3]}"
 image = utils.prepare_image(input_image_location, height, width)
 
 pipeline_output = pipe.longify(
@@ -23,7 +23,11 @@ pipeline_output = pipe.longify(
     image = image,
     height=height,
     width=width,
-    num_frames=17,
+    num_frames=16,
     num_inference_steps=video_timesteps,
     decode_chunk_size=3,
+    video_length = 16,
+    queue_length = 64,
+    new_video_length = 100,
+    num_partitions = 4,
 )
