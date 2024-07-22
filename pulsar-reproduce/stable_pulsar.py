@@ -37,7 +37,9 @@ def main(args):
             # m_sz = (img_sz**2 // 512) * 25
             k = np.random.randint(1000, size=(3,))
             m_sz = 10000
-            m_sz = 1000
+            # m_sz = 1536 # pixel
+            # m_sz = 1440 # svd
+            # m_sz = 96 # sd15, sd21
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
             print(f"Iteration {i+1} using keys {k}")
             prompt = "A man with a mustache."

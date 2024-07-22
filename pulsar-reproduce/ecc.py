@@ -47,8 +47,12 @@ def get_code(err_rate):
             GRSCode(field_size=256, msg_len=512, pay_len=200),
             BRMCode(r=1, m=7)
         )
-    # if True: return None, None
-    return outer, inner
+    # res = outer, inner
+    # res = None, inner,
+    # res = outer, None,
+    res = None, None
+    # return outer, inner
+    return res
 
 # Encodes BYTEarray --> BITarray
 def ecc_encode(pay_bytes, rate=None):

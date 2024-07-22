@@ -25,7 +25,7 @@ class Pulsar():
         self.iters = 0
         self.process_type = "pt" # ["pt", "pil", "na"]
 
-        image_for_svd = [
+        images_for_svd = [
             "input_sample.png",
             "bearded_man.jpg",
             "dog_run.jpg",
@@ -33,7 +33,7 @@ class Pulsar():
         ]
         self.video_timesteps = 25
 
-        self.input_image_location = f"logging/images/for_svd/{image_for_svd[1]}"
+        self.input_image_location = f"logging/images/for_svd/{images_for_svd[1]}"
 
     ################################################################################################################################
     # ENCODING METHODS
@@ -44,6 +44,8 @@ class Pulsar():
         self.iters += 1
         cls_name = self.pipe.__class__.__name__
         match cls_name:
+            case "StegoFIFOVideoDiffusionPipeline":
+                return self._encode_long_video(m, verbose)
             case "StegoStableVideoDiffusionPipeline":
                 return self._encode_video(m, verbose)
             case "StegoStableDiffusionPipeline":
@@ -60,6 +62,71 @@ class Pulsar():
             case _:
                 raise AttributeError(f"the {cls_name} is not supported")
     
+    def _encode_long_video(self, m: str, verbose=False):
+
+        # Synchronize settings
+        g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in self.keys])
+        # timesteps = self.timesteps
+        timesteps = 25
+        timesteps = self.video_timesteps
+        
+        s_churn = 1.0
+        height, width = 512, 512
+        # num_frames = self.pipe.unet.config.num_frames
+        num_frames = 15
+        decode_chunk_size = num_frames // 4
+        fps = 7
+        motion_bucket_id = 127
+        noise_aug_strength = 0.02
+        num_videos_per_prompt = 1
+        batch_size = 1
+
+        image = utils.prepare_image(self.input_image_location, height, width)
+        needs_upcasting = self.pipe.vae.dtype == torch.float16 and self.pipe.vae.config.force_upcast
+
+        # Conduct pipeline
+        pipeline_output = self.pipe(
+            stego_type="encode",
+            payload=m,
+            keys = self.keys,
+            output_type="latent",
+            image=image,
+            height=height,
+            width=width,
+            num_frames=num_frames,
+            num_inference_steps=timesteps,
+            fps=fps,
+            motion_bucket_id=motion_bucket_id,
+            noise_aug_strength=noise_aug_strength,
+            num_videos_per_prompt=num_videos_per_prompt,
+            generator=g_k_s,
+            return_dict=True,
+        )
+
+        latents = pipeline_output["frames"]
+
+        # VAE decode
+        if needs_upcasting:
+            self.pipe.vae.to(dtype=torch.float16)
+        frames = self.pipe.decode_latents(latents, num_frames, decode_chunk_size)
+
+        # Post-processing
+        pt_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pt")
+        pil_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0]
+
+        # Save optionally
+        if self.save_images:
+            gif_path = f"logging/videos/{self.iters}_encode_video.gif"
+            pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], optimize=False, duration=100, loop=0)
+
+        # Output processing
+        if self.process_type == "pt":
+            frames = pt_frames
+        elif self.process_type == "pil":
+            frames = pil_frames
+
+        return frames
+
     def _encode_video(self, m: str, verbose=False):
 
         # Synchronize settings
