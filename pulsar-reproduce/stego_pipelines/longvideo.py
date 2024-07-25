@@ -44,6 +44,8 @@ from diffusers.schedulers import (DDIMScheduler, DDPMScheduler, PNDMScheduler,
                                   DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler)
 from diffusers.schedulers.scheduling_dpmsolver_singlestep import DPMSolverSinglestepScheduler
 from diffusers.models import AutoencoderKL, AutoencoderKLTemporalDecoder
+from diffusers.models.unets.unet_spatio_temporal_condition import UNetSpatioTemporalConditionModel, UNetSpatioTemporalConditionOutput
+
 from torchvision.utils import save_image
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer
 
@@ -86,6 +88,184 @@ from diffusers import StableVideoDiffusionPipeline
 from rate_estimation import estimate_rate
 from utils import mix_samples_using_payload
 
+class FIFOUNetSpatioTemporalConditionModel(UNetSpatioTemporalConditionModel):
+
+    def __init__(
+        self,
+        sample_size: Optional[int] = None,
+        in_channels: int = 8,
+        out_channels: int = 4,
+        down_block_types: Tuple[str] = (
+            "CrossAttnDownBlockSpatioTemporal",
+            "CrossAttnDownBlockSpatioTemporal",
+            "CrossAttnDownBlockSpatioTemporal",
+            "DownBlockSpatioTemporal",
+        ),
+        up_block_types: Tuple[str] = (
+            "UpBlockSpatioTemporal",
+            "CrossAttnUpBlockSpatioTemporal",
+            "CrossAttnUpBlockSpatioTemporal",
+            "CrossAttnUpBlockSpatioTemporal",
+        ),
+        block_out_channels: Tuple[int] = (320, 640, 1280, 1280),
+        addition_time_embed_dim: int = 256,
+        projection_class_embeddings_input_dim: int = 768,
+        layers_per_block: Union[int, Tuple[int]] = 2,
+        cross_attention_dim: Union[int, Tuple[int]] = 1024,
+        transformer_layers_per_block: Union[int, Tuple[int], Tuple[Tuple]] = 1,
+        num_attention_heads: Union[int, Tuple[int]] = (5, 10, 20, 20),
+        num_frames: int = 25,
+    ):
+        super().__init__(
+            sample_size,
+            in_channels,
+            out_channels,
+            down_block_types,
+            up_block_types,
+            block_out_channels,
+            addition_time_embed_dim,
+            projection_class_embeddings_input_dim,
+            layers_per_block,
+            cross_attention_dim,
+            transformer_layers_per_block,
+            num_attention_heads,
+            num_frames,
+        )
+
+    def forward(
+        self,
+        sample: torch.Tensor,
+        timestep: Union[torch.Tensor, float, int],
+        encoder_hidden_states: torch.Tensor,
+        added_time_ids: torch.Tensor,
+        return_dict: bool = True,
+    ) -> Union[UNetSpatioTemporalConditionOutput, Tuple]:
+        r"""
+        The [`UNetSpatioTemporalConditionModel`] forward method.
+
+        Args:
+            sample (`torch.Tensor`):
+                The noisy input tensor with the following shape `(batch, num_frames, channel, height, width)`.
+            timestep (`torch.Tensor` or `float` or `int`): The number of timesteps to denoise an input.
+            encoder_hidden_states (`torch.Tensor`):
+                The encoder hidden states with shape `(batch, sequence_length, cross_attention_dim)`.
+            added_time_ids: (`torch.Tensor`):
+                The additional time ids with shape `(batch, num_additional_ids)`. These are encoded with sinusoidal
+                embeddings and added to the time embeddings.
+            return_dict (`bool`, *optional*, defaults to `True`):
+                Whether or not to return a [`~models.unet_slatio_temporal.UNetSpatioTemporalConditionOutput`] instead
+                of a plain tuple.
+        Returns:
+            [`~models.unet_slatio_temporal.UNetSpatioTemporalConditionOutput`] or `tuple`:
+                If `return_dict` is True, an [`~models.unet_slatio_temporal.UNetSpatioTemporalConditionOutput`] is
+                returned, otherwise a `tuple` is returned where the first element is the sample tensor.
+        """
+        # 1. time
+        timesteps = timestep
+        if not torch.is_tensor(timesteps):
+            # TODO: this requires sync between CPU and GPU. So try to pass timesteps as tensors if you can
+            # This would be a good case for the `match` statement (Python 3.10+)
+            is_mps = sample.device.type == "mps"
+            if isinstance(timestep, float):
+                dtype = torch.float32 if is_mps else torch.float64
+            else:
+                dtype = torch.int32 if is_mps else torch.int64
+            timesteps = torch.tensor([timesteps], dtype=dtype, device=sample.device)
+        elif len(timesteps.shape) == 0:
+            timesteps = timesteps[None].to(sample.device)
+
+        # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+        batch_size, num_frames = sample.shape[:2]
+        timesteps = timesteps.expand(batch_size)
+
+        t_emb = self.time_proj(timesteps)
+
+        # `Timesteps` does not contain any weights and will always return f32 tensors
+        # but time_embedding might actually be running in fp16. so we need to cast here.
+        # there might be better ways to encapsulate this.
+        t_emb = t_emb.to(dtype=sample.dtype)
+
+        emb = self.time_embedding(t_emb)
+
+        time_embeds = self.add_time_proj(added_time_ids.flatten())
+        time_embeds = time_embeds.reshape((batch_size, -1))
+        time_embeds = time_embeds.to(emb.dtype)
+        aug_emb = self.add_embedding(time_embeds)
+        emb = emb + aug_emb
+
+        # Flatten the batch and frames dimensions
+        # sample: [batch, frames, channels, height, width] -> [batch * frames, channels, height, width]
+        sample = sample.flatten(0, 1)
+        # Repeat the embeddings num_video_frames times
+        # emb: [batch, channels] -> [batch * frames, channels]
+        emb = emb.repeat_interleave(num_frames, dim=0)
+        # encoder_hidden_states: [batch, 1, channels] -> [batch * frames, 1, channels]
+        encoder_hidden_states = encoder_hidden_states.repeat_interleave(num_frames, dim=0)
+
+        # 2. pre-process
+        sample = self.conv_in(sample)
+
+        image_only_indicator = torch.zeros(batch_size, num_frames, dtype=sample.dtype, device=sample.device)
+
+        down_block_res_samples = (sample,)
+        for downsample_block in self.down_blocks:
+            if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
+                sample, res_samples = downsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    encoder_hidden_states=encoder_hidden_states,
+                    image_only_indicator=image_only_indicator,
+                )
+            else:
+                sample, res_samples = downsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    image_only_indicator=image_only_indicator,
+                )
+
+            down_block_res_samples += res_samples
+
+        # 4. mid
+        sample = self.mid_block(
+            hidden_states=sample,
+            temb=emb,
+            encoder_hidden_states=encoder_hidden_states,
+            image_only_indicator=image_only_indicator,
+        )
+
+        # 5. up
+        for i, upsample_block in enumerate(self.up_blocks):
+            res_samples = down_block_res_samples[-len(upsample_block.resnets) :]
+            down_block_res_samples = down_block_res_samples[: -len(upsample_block.resnets)]
+
+            if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
+                sample = upsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    res_hidden_states_tuple=res_samples,
+                    encoder_hidden_states=encoder_hidden_states,
+                    image_only_indicator=image_only_indicator,
+                )
+            else:
+                sample = upsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    res_hidden_states_tuple=res_samples,
+                    image_only_indicator=image_only_indicator,
+                )
+
+        # 6. post-process
+        sample = self.conv_norm_out(sample)
+        sample = self.conv_act(sample)
+        sample = self.conv_out(sample)
+
+        # 7. Reshape back to original shape
+        sample = sample.reshape(batch_size, num_frames, *sample.shape[1:])
+
+        if not return_dict:
+            return (sample,)
+
+        return UNetSpatioTemporalConditionOutput(sample=sample)
 
 class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
     
@@ -136,13 +316,17 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         queue_length = 64,
         new_video_length = 100,
         num_partitions = 4,
+        force_all_steps = True,
     ):
         device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # if isinstance(self.unet, UNetSpatioTemporalConditionModel):
+        #     self.unet = FIFOUNetSpatioTemporalConditionModel(self.unet).to(torch.half).to(device)
         
         num_inference_steps = video_length * num_partitions
         queue_length = num_inference_steps
         
-        # Instantiate base video model
+        # Reference base video model
         videogen_pipeline = self
 
         # Create directories for outputs (frames + latents)
@@ -155,32 +339,38 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         print("The results will be saved in", output_dir)
         print("The latents will be saved in", latents_dir)
         
-        # If latents already produced, skip FIFO process and just VAE decode
-        fifo_proc = not os.path.exists(os.path.join(latents_dir, "fifo.pt"))
-        if fifo_proc:
-            num_vae = new_video_length // (video_length-1)    
+        # Skip FIFO process and just VAE decode if latents already produced
+        fifo_proc = os.path.exists(os.path.join(latents_dir, "fifo.pt"))
+        if not force_all_steps and fifo_proc:
+            print(f"skipping fifo process, VAE decoding")
+            fifo_first_latents = torch.load(os.path.join(latents_dir, "fifo.pt"))
+
+            num_vae = new_video_length // (video_length-1)
             first_idx = video_length // 2 if lookahead_denoising else 0
 
             fifo_vae_video_frames = []
             for i in range(num_vae):
-                target_latents = torch.cat(fifo_first_latents[first_idx+i*(video_length-1):first_idx+(i+1)*(video_length-1)+1], dim=2)
-                video = videogen_pipeline.decode_latents(target_latents, new_video_length, decode_chunk_size)[0]
+                target_latents = torch.cat(fifo_first_latents[first_idx+i*(video_length-1):first_idx+(i+1)*(video_length-1)+1], dim=1).to(device)
+                video = videogen_pipeline.decode_latents(target_latents, video_length, decode_chunk_size)[0]
 
                 if i == 0:
-                    fifo_vae_video_frames.append(video)
+                    to_append = video
                 else:
-                    fifo_vae_video_frames.append(video[1:])
+                    to_append = video[:, 1:]
+                print(f"appending {to_append.shape[1]} frames")
+                fifo_vae_video_frames.append(to_append[None])
             
-            if num_vae > 0:
-                fifo_vae_video_frames = torch.cat(fifo_vae_video_frames, dim=0)
-                output_vae_path = os.path.join(output_dir, "fifo_vae.gif")
-                fifo_vae_video_frames[0].save(output_vae_path, save_all=True, append_images=fifo_vae_video_frames[1:], optimize=False, duration=100, loop=0)
+            fifo_vae_video_frames = torch.cat(fifo_vae_video_frames, dim=2)
+            print(f"vid_frames {fifo_vae_video_frames.shape}")
+            pil_frames = videogen_pipeline.video_processor.postprocess_video(video=fifo_vae_video_frames, output_type="pil")[0]
+            output_vae_path = os.path.join(output_dir, "fifo_vae.gif")
+            pil_frames[0].save(output_vae_path, save_all=True, append_images=fifo_vae_video_frames[1:], optimize=False, duration=100, loop=0)
             return
 
 
         # Acquire latents from an origin video (skip if present)
-        is_run_base = not os.path.exists(os.path.join(latents_dir, "video.pt"))
-        if is_run_base:
+        need_to_run_base = not os.path.exists(os.path.join(latents_dir, "video.pt"))
+        if need_to_run_base:
             print("will run videogen_pipeline to get base video latents")
             latents = videogen_pipeline(
                 image,
@@ -213,7 +403,7 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
             output_path = os.path.join(output_dir, "origin.gif")
             frames[0].save(output_path, save_all=True, append_images=frames[1:], optimize=False, duration=100, loop=0)
         
-        # FIFO scheduler utilizes more inference steps
+        # FIFO scheduler utilizes more inference steps...
         videogen_pipeline.scheduler.set_timesteps(num_inference_steps)
     
         # Prepare latents for FIFO diffusion
@@ -465,13 +655,13 @@ class StegoFIFOVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
 
         timesteps = timesteps.to(device)
-        current_timestep = torch.mean(timesteps)
+        # current_timestep = torch.mean(timesteps)
+        print(timesteps)
 
-
-        # current_timestep = timesteps # torch.Size([f])
-        # current_timestep = current_timestep[None].to(latent_model_input.device)
-        # # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        # current_timestep = current_timestep.expand(latent_model_input.shape[0], -1) # torch.Size([2, f])
+        current_timestep = timesteps # torch.Size([f])
+        current_timestep = current_timestep[None].to(latent_model_input.device)
+        # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+        current_timestep = current_timestep.expand(latent_model_input.shape[0], -1) # torch.Size([2, f])
         
         
         # latent_model_input should be [2, f, 8, 64, 64]

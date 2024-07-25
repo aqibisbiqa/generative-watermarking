@@ -179,6 +179,7 @@ class Pulsar():
 
         # Post-processing
         pt_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pt")
+        print(f"frames {frames.shape}")
         pil_frames = self.pipe.video_processor.postprocess_video(video=frames, output_type="pil")[0]
 
         # Save optionally

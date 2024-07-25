@@ -1,9 +1,13 @@
 import torch
-from stego_pipelines.longvideo import StegoFIFOVideoDiffusionPipeline
+from stego_pipelines.longvideo import StegoFIFOVideoDiffusionPipeline, FIFOUNetSpatioTemporalConditionModel
 import utils
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-pipe = StegoFIFOVideoDiffusionPipeline.from_pretrained("stabilityai/stable-video-diffusion-img2vid", torch_dtype=torch.float16, variant="fp16")
+pipe = StegoFIFOVideoDiffusionPipeline.from_pretrained(
+    "stabilityai/stable-video-diffusion-img2vid", 
+    torch_dtype=torch.float16, 
+    variant="fp16",
+)
 pipe.to(device)
 
 image_for_svd = [
