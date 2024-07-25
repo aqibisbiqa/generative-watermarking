@@ -6,7 +6,7 @@ We leverage the added noise in the late-stage denoising steps and the performanc
 The primary breakthrough of our method is that our steganographic embeddings are **perfectly secure**, in the sense that the unperturbed distribution of all output samples of the diffusion model and the distribution of samples with any encoded message are the same.
 Thus, regardless of the number of leaked samples, an adversary will never be able to distinguish between a regular sample and that imbued with sensitive information.
 
-NB: PSyDUCK is short for <u>P</u>erfectly-Secure <u>S</u>teganograph<u>y</u> via <u>D</u>iffusion model <u>U</u>sage to <u>C</u>ommunicate <u>K</u>overtly
+NB: PSyDUCK is short for Perfectly secure SteganographY via Diffusion model Usage to Communicate Kovertly
 
 ## Usage
 
@@ -48,4 +48,3 @@ python3 experiment.py
 - Associated paper/report
 - Infinite video support (w/ FIFO-Diffusion)
 - Web interface (w/ Gradio)
-- Appealing acronym for our methods (open to suggestions :)
