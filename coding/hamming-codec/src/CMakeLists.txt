@@ -1,0 +1,7 @@
+add_subdirectory(cpp)
+if(TOPLEVEL_PROJECT)
+    if (BUILD_PYTHON)
+        message(STATUS "Building python bindings for hamming-codec")
+        add_subdirectory(python)
+    endif()
+endif()

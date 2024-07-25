@@ -12,8 +12,21 @@ NB: PSyDUCK is short for Perfectly secure SteganographY via Diffusion model Usag
 
 ### Prerequisites
 
+```
+conda create --name psyduck --file requirements.txt
+```
 
-### Encode
+### Run Experiment
+This will automatically run the encode + decode process with your desired model for any number of iterations and calculate the transmission rates + accuracies. 
+```
+python3 experiment.py
+    --model     [supported_model] 
+    --iters     [iterations_to_run]
+    --prompt    [prompt_if_txt_to_img]
+    --baseimg   [path_to_base_image_if_using_img_to_###]
+```
+
+### Encode (WIP)
 ```
 python3 encode.py 
     --model     [supported_model] 
@@ -24,7 +37,7 @@ python3 encode.py
     --saveto    [path_to_save_sample]
 ```
 
-### Decode
+### Decode (WIP)
 ```
 python3 encode.py 
     --model     [supported_model] 
@@ -33,15 +46,6 @@ python3 encode.py
     --prompt    [prompt_if_txt_to_img]
     --baseimg   [path_to_base_image_if_using_img_to_###]
 
-```
-
-### Run Experiment
-```
-python3 experiment.py
-    --model     [supported_model] 
-    --iters     [iterations_to_run]
-    --prompt    [prompt_if_txt_to_img]
-    --baseimg   [path_to_base_image_if_using_img_to_###]
 ```
 
 ## WIPs

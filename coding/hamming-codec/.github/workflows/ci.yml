@@ -1,0 +1,55 @@
+name: CI/CD
+on: [push, pull_request]
+jobs:
+    test:
+        strategy:
+            matrix:
+                os: [ubuntu-20.04, macos-10.15]
+                python-version: [3.6, 3.7, 3.8]
+                exclude:
+                    - os: macos-10.15
+                      python-version: 3.6
+                    - os: macos-10.15
+                      python-version: 3.7
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@v2
+              with:
+                  submodules: 'recursive'
+            - name: Set up Python ${{ matrix.python-version }}
+              uses: actions/setup-python@v2
+              with:
+                  python-version: ${{ matrix.python-version }}
+            - name: Install
+              run: |
+                  python --version
+                  python -m pip install --upgrade pip setuptools wheel
+                  python -m pip install --ignore-installed --no-cache-dir .
+                  python -m pip list
+            - name: hamming
+              run: |
+                  hamming --help
+            - name: hamming encode
+              run: |
+                  encoding=($(hamming encode 0x4235 16))
+                  echo "encode output: ${encoding[@]}"
+                  # test encoded value
+                  [ ${encoding[0]} = "0x8a3ac" ]
+                  # test encoded length
+                  [ ${encoding[1]} = "21" ]
+            - name: hamming decode
+              run: |
+                  decoding=($(hamming decode 0x8a3ac 21))
+                  echo "decode output: ${decoding[@]}"
+                  # test decoded value
+                  [ ${decoding[0]} = "0x4235" ]
+                  # test decoded length
+                  [ ${decoding[1]} = "16" ]
+            - name: hamming decode error correction
+              run: |
+                  decoding=($(hamming decode 0x8a1ac 21))
+                  echo "decode output: ${decoding[@]}"
+                  # test decoded value
+                  [ ${decoding[0]} = "0x4235" ]
+                  # test decoded length
+                  [ ${decoding[1]} = "16" ]

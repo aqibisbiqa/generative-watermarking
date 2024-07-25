@@ -1,0 +1,27 @@
+name: centos7_build
+on: [push, pull_request]
+jobs:
+    centos-build:
+        runs-on: ubuntu-latest
+        container: dantrim/centos:centos7
+        steps:
+            - uses: actions/checkout@v2
+              with:
+                  submodules: 'recursive'
+            - name: Setup GCC
+              run: |
+                gcc --version
+                cmake3 --version
+                source /opt/rh/devtoolset-7/enable
+                gcc --version
+                cmake3 --version
+            - name: Build C++ library
+              run: |
+                  source /opt/rh/devtoolset-7/enable
+                  gcc --version
+                  cmake3 --version
+                  mkdir build/
+                  pushd build/
+                  cmake3 ..
+                  make
+                  popd
