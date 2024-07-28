@@ -1,4 +1,5 @@
 *.pt
 *.png
 *.gif
+*.pyc
 logging
