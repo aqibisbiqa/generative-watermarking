@@ -281,8 +281,7 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
                     latents_0 = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_0, return_dict=False)[0]
                     latents_1 = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_1, return_dict=False)[0]
                     if stego_type == "encode":
-                        err_rate = 1 - empirical_success_rates["latent"]    # used for error correction
-                        latents = mix_samples_using_payload(payload, latents_0, latents_1, err_rate)
+                        latents = mix_samples_using_payload(payload, latents_0, latents_1, model_type="latent")
                     elif stego_type == "decode":
                         # to avoid doing an extra pass for each latent, double 
                         latents = torch.cat([latents_0, latents_1])

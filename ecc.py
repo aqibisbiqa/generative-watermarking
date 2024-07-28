@@ -9,39 +9,46 @@ from coding.brm import BRMCode
 
 # @title ECC
 
-def get_code(err_rate):
-    if err_rate < 0.05:
-        print("using nothing")
+def get_code(model_type):
+    # HammingCode(field_size=2, msg_len=12, pay_len=8),
+    # GRSCode(field_size=256, msg_len=512, pay_len=200),
+    if model_type == "pixel":
+        print("using pixel")
         outer, inner = (
             None,
             None,
         )
-    elif err_rate < 0.10:
-        print("using hamming")
+    elif model_type == "latent":
+        print("using latent")
         outer, inner = (
-            # HammingCode(field_size=2, msg_len=12, pay_len=8),
             BRMCode(r=1, m=5),
             None,
         )
-    elif err_rate < 0.15:
-        print("using BRM")
+    elif model_type == "video":
+        print("using video")
         outer, inner = (
             BRMCode(r=1, m=7),
             None,
         )
-    else:
-        print("using grs + brm")
+        # outer, inner = (
+        #     GRSCode(field_size=256, msg_len=512, pay_len=200),
+        #     BRMCode(r=1, m=5),
+        # )
+    elif model_type == "longvideo":
+        print("using longvideo")
         outer, inner = (
-            GRSCode(field_size=256, msg_len=512, pay_len=200),
-            BRMCode(r=1, m=5),
+            None,
+            None,
         )
+    else:
+        raise ValueError(f"model_type cannot be {model_type}")
     return outer, inner
 
 # Encodes BYTEarray --> BITarray
-def ecc_encode(pay_bytes, err_rate=0):
+def ecc_encode(pay_bytes, model_type):
     
     # get code
-    outer, inner = get_code(err_rate)
+    outer, inner = get_code(model_type)
     
     # (bytes -> bits)
     enc = np.unpackbits(pay_bytes)
@@ -57,10 +64,10 @@ def ecc_encode(pay_bytes, err_rate=0):
     return enc
 
 # Decodes BITarray --> BYTEarray
-def ecc_recover(msg_bits, err_rate=0):
+def ecc_decode(msg_bits, model_type):
     
     # get code
-    outer, inner = get_code(err_rate)
+    outer, inner = get_code(model_type)
     
     # (bits -> bits)
     dec = msg_bits

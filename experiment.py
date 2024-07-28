@@ -16,7 +16,7 @@ def main(args):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         warnings.filterwarnings("ignore", category=FutureWarning)
     
-    from pseudo import Pseudo
+    from pseudo import Psyduck
     from supported_models import get_pipeline
 
     ### Experiment Setup ###
@@ -29,7 +29,7 @@ def main(args):
     ### Experiment Loop ###
     accs, i = [], 0
     np.random.seed(0)
-    p = Pseudo(pipe)
+    p = Psyduck(pipe)
     while i < args.iters:
         try:
             print("#"*75)
@@ -37,8 +37,8 @@ def main(args):
             # m_sz = (img_sz**2 // 512) * 25
             k = np.random.randint(1000, size=(3,))
             # m_sz = 10000
-            m_sz = 1536 # pixel
-            # m_sz = 1440 # svd
+            # m_sz = 1536 # pixel
+            m_sz = 1440 # svd
             # m_sz = 96 # sd15, sd21
             m = np.random.randint(256, size=m_sz, dtype=np.uint8)
             print(f"Iteration {i+1} using keys {k}")
@@ -50,9 +50,12 @@ def main(args):
             img = p.encode(m, verbose=args.verbose)
             print("DECODING")
             out = p.decode(img, verbose=args.verbose)
-        except ValueError:
-            print("stupid broadcast error, retrying")
-        except ZeroDivisionError:
+        except ValueError as e:
+            if "operands could not be broadcast together with shapes" in str(e):
+                print("stupid broadcast error, retrying")
+            else:
+                raise
+        except ZeroDivisionError as e:
             print("stupid galois field error, retrying")
         else:
             print(f"length of m is {len(m)} bytes")

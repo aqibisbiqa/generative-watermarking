@@ -73,17 +73,18 @@ def prepare_image(image_path, target_height=576, target_width=1024):
 
 empirical_success_rates = {
     # "longvideo": 0.85,
-    "video": 0.90,
-    "latent": 0.90,
+    # "video": 0.90,
+    "video": 0.99,
+    "latent": 0.85,
     "pixel": 0.70,
 }
 
-def mix_samples_using_payload(payload, samp_0, samp_1, err_rate, verbose=False):
+def mix_samples_using_payload(payload, samp_0, samp_1, model_type, verbose=False):
     if samp_0.dim() == 5:
         # video -- permute to [batch, channels, frames, h, w]
         samp_0 = samp_0.permute((0, 2, 1, 3, 4))
         samp_1 = samp_1.permute((0, 2, 1, 3, 4))
-    m_ecc = ecc.ecc_encode(payload, err_rate)
+    m_ecc = ecc.ecc_encode(payload, model_type)
     m_ecc.resize(samp_0[0, 0].shape, refcheck=False)
     m_ecc = torch.from_numpy(m_ecc).to(samp_0.device)
     res = torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
@@ -93,7 +94,7 @@ def mix_samples_using_payload(payload, samp_0, samp_1, err_rate, verbose=False):
         samp_1 = samp_1.permute((0, 2, 1, 3, 4))
     return res
 
-def decode_message_from_image_diffs(samp, samp_0, samp_1, verbose=False, debug=True):
+def decode_message_from_image_diffs(samp, samp_0, samp_1, model_type, verbose=False, debug=True):
     diffs_0 = torch.norm(samp - samp_0, dim=(0, 1))
     diffs_1 = torch.norm(samp - samp_1, dim=(0, 1))
 
@@ -105,7 +106,7 @@ def decode_message_from_image_diffs(samp, samp_0, samp_1, verbose=False, debug=T
     m_dec = torch.where(diffs_0 < diffs_1, 0, 1).cpu().detach().numpy().astype(int)
     if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
     m_dec = m_dec.flatten()
-    return ecc.ecc_recover(m_dec)
+    return ecc.ecc_decode(m_dec, model_type)
 
 def calc_acc(m: np.ndarray, out: np.ndarray, bitwise=True):
     min_len = min(len(m), len(out))

@@ -11,7 +11,7 @@ import os
 import ecc
 import utils
 
-class Pseudo():
+class Psyduck():
     def __init__(
             self, 
             pipe, 
@@ -37,7 +37,7 @@ class Pseudo():
             "dog_run.jpg",
             "low_res_cat.jpg",
         ]
-        self.input_image_location = f"logging/images/for_svd/{images_for_svd[1]}"
+        self.input_image_location = f"svd_base_images/{images_for_svd[1]}"
 
         # for output
         self.save_images = save_images
@@ -421,7 +421,7 @@ class Pseudo():
             print(latents_0[0, 0, 0, :show, :show].numpy(force=True))
             print(latents_1[0, 0, 0, :show, :show].numpy(force=True))
 
-        m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, err_rate, verbose)
+        m = utils.decode_message_from_image_diffs(latents, latents_0, latents_1, "video", verbose)
         return m
 
     def _decode_latent(self, img, verbose=False):
@@ -507,7 +507,7 @@ class Pseudo():
             print(latents_0[0, 0, 0, :10].numpy(force=True))
             print(latents_1[0, 0, 0, :10].numpy(force=True))
 
-        m = self._decode_message_from_image_diffs(latents, latents_0, latents_1, err_rate, verbose)
+        m = utils.decode_message_from_image_diffs(latents, latents_0, latents_1, "latent", verbose)
         return m
 
     def _decode_pixel(self, img, verbose=False):
@@ -544,7 +544,7 @@ class Pseudo():
         ######################
 
         # Decoding
-        m = self._decode_message_from_image_diffs(img, img_0, img_1, err_rate, verbose)
+        m = utils.decode_message_from_image_diffs(img, img_0, img_1, "pixel", verbose)
 
         return m
     

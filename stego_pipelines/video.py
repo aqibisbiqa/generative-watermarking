@@ -551,8 +551,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                         latents = latents.permute((0, 2, 1, 3, 4))
                         print(f"latents {latents.shape}")
                         print("boutta mix")
-                        err_rate = 1 - empirical_success_rates["video"]    # used for error correction
-                        latents[:, :] = mix_samples_using_payload(payload, latents_0, latents_1, err_rate)
+                        latents[:, :] = mix_samples_using_payload(payload, latents_0, latents_1, model_type="video")
                         latents = latents.permute((0, 2, 1, 3, 4))
                         print(f"latents {latents.shape}")
                         print(f"latents_0 {latents_0.shape}")
