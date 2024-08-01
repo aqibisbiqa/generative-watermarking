@@ -110,6 +110,7 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         keys: tuple = (10, 11, 12),
         payload = None,
+        num_div_steps = 1,
         **kwargs,
     ):
         match stego_type:
@@ -214,9 +215,9 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in keys])
         extra_step_kwargs_s = self.prepare_extra_step_kwargs(g_k_s, eta)
-        penul_eta = 1
-        extra_step_kwargs_0 = self.prepare_extra_step_kwargs(g_k_0, penul_eta)
-        extra_step_kwargs_1 = self.prepare_extra_step_kwargs(g_k_1, penul_eta)
+        div_eta = 1
+        extra_step_kwargs_0 = self.prepare_extra_step_kwargs(g_k_0, div_eta)
+        extra_step_kwargs_1 = self.prepare_extra_step_kwargs(g_k_1, div_eta)
 
         """
         very interesting development, as different etas yield vastly different performance
@@ -243,6 +244,10 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
         # 7. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
+
+        penul = self.num_timesteps-2
+        div_timesteps = torch.arange(penul, penul-num_div_steps, -1).flip(0)
+
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 if self.interrupt:
@@ -273,21 +278,40 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
                     noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=self.guidance_rescale)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                if i not in [self.num_timesteps-2]:
+                if i not in div_timesteps:
                     # proceed normally
                     latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_s, return_dict=False)[0]
                 else:
-                    # stego step at penultimate step
-                    latents_0 = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_0, return_dict=False)[0]
-                    latents_1 = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_1, return_dict=False)[0]
-                    if stego_type == "encode":
-                        latents = mix_samples_using_payload(payload, latents_0, latents_1, model_type="latent")
-                    elif stego_type == "decode":
-                        # to avoid doing an extra pass for each latent, double 
-                        latents = torch.cat([latents_0, latents_1])
-                        prompt_embeds = torch.cat([prompt_embeds, prompt_embeds])
+                    # divergent step(s)
+                    if i == div_timesteps[0]:
+                        # first divergent step
+                            # clone latents + noise_pred
+                        l0, l1 =  latents.clone(), latents.clone()
+                        np0, np1 = noise_pred.clone(), noise_pred.clone()
+                            # to avoid doing an extra pass for each latent, double other params
+                        prompt_embeds = torch.cat([prompt_embeds] * 2)
                         if timestep_cond is not None:
-                            timestep_cond = torch.cat([timestep_cond, timestep_cond])
+                            timestep_cond = torch.cat([timestep_cond] * 2)
+                    else:
+                        # already diverged at least once
+                        l0, l1 = latents.chunk(2)
+                        np0, np1 = noise_pred.chunk(2)
+                    
+                    l0 = self.scheduler.step(np0, t, l0, **extra_step_kwargs_0, return_dict=False)[0]
+                    l1 = self.scheduler.step(np1, t, l1, **extra_step_kwargs_1, return_dict=False)[0]
+                    latents = torch.cat([l0, l1])
+                    
+                    if i == penul:
+                        if stego_type == "encode":
+                            # undo doubling
+                            l0, l1 = latents.chunk(2)
+                            prompt_embeds, _ = prompt_embeds.chunk(2)
+                            if timestep_cond is not None:
+                                timestep_cond, _ = timestep_cond.chunk(2)
+                            # and mix diverged samples
+                            latents = mix_samples_using_payload(payload, l0, l1, model_type="latent")
+                        elif stego_type == "decode":
+                            pass
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}

@@ -4,6 +4,7 @@ import random
 import copy
 import functools
 from PIL import Image, ImageOps
+from einops import rearrange
 
 import ecc
 
@@ -81,17 +82,17 @@ empirical_success_rates = {
 
 def mix_samples_using_payload(payload, samp_0, samp_1, model_type, verbose=False):
     if samp_0.dim() == 5:
-        # video -- permute to [batch, channels, frames, h, w]
-        samp_0 = samp_0.permute((0, 2, 1, 3, 4))
-        samp_1 = samp_1.permute((0, 2, 1, 3, 4))
+        # video
+        samp_0 = rearrange(samp_0, 'b f c h w -> b c f h w').contiguous()
+        samp_1 = rearrange(samp_1, 'b f c h w -> b c f h w').contiguous()
+    
     m_ecc = ecc.ecc_encode(payload, model_type)
     m_ecc.resize(samp_0[0, 0].shape, refcheck=False)
     m_ecc = torch.from_numpy(m_ecc).to(samp_0.device)
     res = torch.where(m_ecc == 0, samp_0[:, :], samp_1[:, :])
     if samp_0.dim() == 5:
-        # video -- permute back to [batch, frames, channels, h, w]
-        samp_0 = samp_0.permute((0, 2, 1, 3, 4))
-        samp_1 = samp_1.permute((0, 2, 1, 3, 4))
+        # video
+        res = rearrange(res, 'b c f h w -> b f c h w').contiguous()
     return res
 
 def decode_message_from_image_diffs(samp, samp_0, samp_1, model_type, verbose=False, debug=True):

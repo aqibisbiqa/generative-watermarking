@@ -33,6 +33,7 @@ class StegoDDIMPixelPipeline(DiffusionPipeline):
         return_dict: bool = True,
         keys: tuple = (10, 11, 12),
         payload = None,
+        num_div_steps = 1,
     ) -> Union[ImagePipelineOutput, Tuple]:
 
         match stego_type:
@@ -62,35 +63,39 @@ class StegoDDIMPixelPipeline(DiffusionPipeline):
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
         
-        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
-            model_output = self.unet(image, t).sample
-            image = self.scheduler.step(
-                model_output, t, image, eta=eta, generator=g_k_s, use_clipped_model_output=use_clipped_model_output, 
-            ).prev_sample
-            if i == num_inference_steps-3: break
+        penul = num_inference_steps-2
+        div_timesteps = torch.arange(penul, penul-num_div_steps, -1).flip(0)
         
-        # Perform T-1'th denoising step (g_k_0 and g_k_1)
-        t = self.scheduler.timesteps[-2]  ### PENULTIMATE STEP ###
-        resid = self.unet(image, t).sample
-        image_0 = self.scheduler.step(resid, t, image, generator=g_k_0, eta=eta).prev_sample
-        image_1 = self.scheduler.step(resid, t, image, generator=g_k_1, eta=eta).prev_sample
-
-        if stego_type == "encode":
-            # Encode payload and use it to mix the two samples pixelwise
-            image[:, :] = mix_samples_using_payload(payload, image_0, image_1, model_type="pixel")
-
-            # Perform T'th denoising step (deterministic)
-            t = self.scheduler.timesteps[-1]  ### LAST STEP ###
+        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
             resid = self.unet(image, t).sample
-            image = self.scheduler.step(resid, t, image).prev_sample
-        elif stego_type == "decode":
-            t = self.scheduler.timesteps[-1]  ### LAST STEP ###
-            resid_0 = self.unet(image_0, t).sample
-            resid_1 = self.unet(image_1, t).sample
-            image_0 = self.scheduler.step(resid_0, t, image_0, eta=eta).prev_sample
-            image_1 = self.scheduler.step(resid_1, t, image_1, eta=eta).prev_sample
-            image = torch.cat([image_0, image_1])
+            if i not in div_timesteps:
+                image = self.scheduler.step(
+                    resid, t, image, eta=eta, generator=g_k_s, use_clipped_model_output=use_clipped_model_output, 
+                ).prev_sample
+            else:
+                if i == div_timesteps[0]:
+                    # first divergent step
+                    i0, i1 = image.clone(), image.clone()
+                    r0, r1 = resid.clone(), resid.clone()
+                else:
+                    # already diverged
+                    i0, i1 = image.chunk(2)
+                    r0, r1 = resid.chunk(2)
+                i0 = self.scheduler.step(
+                    r0, t, i0, eta=eta, generator=g_k_s, use_clipped_model_output=use_clipped_model_output, 
+                ).prev_sample
+                i1 = self.scheduler.step(
+                    r1, t, i1, eta=eta, generator=g_k_s, use_clipped_model_output=use_clipped_model_output, 
+                ).prev_sample
+                image = torch.cat([i0, i1])
 
+                if i == penul:
+                    if stego_type == "encode":
+                        i0, i1 = image.chunk(2)
+                        image = mix_samples_using_payload(payload, i0, i1, model_type="pixel")
+                    elif stego_type == "decode":
+                        pass
+            
         if output_type == "pil":
             image = process_pixel(image)
 

@@ -318,6 +318,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         return_dict: bool = True,
         keys: tuple = (10, 11, 12),
         payload = None,
+        num_div_steps = 2,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -505,6 +506,10 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         # 9. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
+
+        penul = self.num_timesteps-2
+        div_timesteps = torch.arange(penul, penul-num_div_steps, -1).flip(0)
+
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
@@ -529,39 +534,52 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                     noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                if i not in [self.num_timesteps-2]:
+                if i not in div_timesteps:
                     latents = self.scheduler.step(noise_pred, t, latents, s_churn=0, generator=g_k_s).prev_sample
                 else:
+                    # divergent steps
+                    if i == div_timesteps[0]:
+                        # first divergent step
+                            # clone latents + noise_pred
+                        l0, l1 = latents.clone(), latents.clone()
+                        np0, np1 = noise_pred.clone(), noise_pred.clone()
+                            # to avoid doing an extra pass for each latent, double other params
+                        image_latents = torch.cat([image_latents] * 2)
+                        image_embeddings = torch.cat([image_embeddings] * 2)
+                        added_time_ids = torch.cat([added_time_ids] * 2)
+                    else:
+                        # already diverged at least once
+                        l0, l1 = latents.chunk(2)
+                        np0, np1 = noise_pred.chunk(2)
+
+                    if True:
+                        sigma = sched.sigmas[sched.step_index]
+                        gamma = min(s_churn / (len(sched.sigmas) - 1), 2**0.5 - 1)
+                        # s_noise = 1
+                        s_noise = 10 ** 1
+                        sigma_hat = sigma * (gamma + 1)
+                        print(f"sched sigma is {sigma}")
+                        print(f"sched gamma is {gamma}")
+                        print(f"sched mult factor is {s_noise * (sigma_hat**2 - sigma**2) ** 0.5}")
                     
-                    sigma = sched.sigmas[sched.step_index]
-                    gamma = min(s_churn / (len(sched.sigmas) - 1), 2**0.5 - 1)
-                    # s_noise = 1
-                    s_noise = 10 ** 1
-                    sigma_hat = sigma * (gamma + 1)
-                    print(f"sched sigma is {sigma}")
-                    print(f"sched gamma is {gamma}")
-                    print(f"sched mult factor is {s_noise * (sigma_hat**2 - sigma**2) ** 0.5}")
-                    
-                    latents_0 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, s_noise=s_noise, generator=g_k_0).prev_sample
+                    l0 = self.scheduler.step(np0, t, l0, s_churn=s_churn, s_noise=s_noise, generator=g_k_0).prev_sample
                     self.scheduler._step_index = None
-                    latents_1 = self.scheduler.step(noise_pred, t, latents, s_churn=s_churn, s_noise=s_noise, generator=g_k_1).prev_sample
+                    l1 = self.scheduler.step(np1, t, l1, s_churn=s_churn, s_noise=s_noise, generator=g_k_1).prev_sample
                     self.scheduler._step_index = None
 
-                    if stego_type == "encode":
-                        latents = latents.permute((0, 2, 1, 3, 4))
-                        print(f"latents {latents.shape}")
-                        print("boutta mix")
-                        latents[:, :] = mix_samples_using_payload(payload, latents_0, latents_1, model_type="video")
-                        latents = latents.permute((0, 2, 1, 3, 4))
-                        print(f"latents {latents.shape}")
-                        print(f"latents_0 {latents_0.shape}")
-                        print(f"latents_1 {latents_1.shape}")
-                    elif stego_type == "decode":
-                        # to avoid doing an extra pass for each latent, double 
-                        latents = torch.cat([latents_0, latents_1])
-                        image_latents = torch.cat([image_latents, image_latents])
-                        image_embeddings = torch.cat([image_embeddings, image_embeddings])
-                        added_time_ids = torch.cat([added_time_ids, added_time_ids])
+                    latents = torch.cat([l0, l1])
+
+                    if i == penul:
+                        if stego_type == "encode":
+                            # undo doubling
+                            l0, l1 = latents.chunk(2)
+                            image_latents, _ = image_latents.chunk(2)
+                            image_embeddings, _ = image_embeddings.chunk(2)
+                            added_time_ids, _ = added_time_ids.chunk(2)
+                            # and mix diverged samples
+                            latents = mix_samples_using_payload(payload, l0, l1, model_type="video")
+                        elif stego_type == "decode":
+                            pass
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}
