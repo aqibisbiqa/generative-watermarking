@@ -16,24 +16,25 @@ def get_code(model_type):
         print("using pixel")
         outer, inner = (
             None,
-            None,
+            # None,
+            # GRSCode(field_size=256, msg_len=512, pay_len=200),
+            BRMCode(r=1, m=7),
         )
     elif model_type == "latent":
         print("using latent")
         outer, inner = (
-            BRMCode(r=1, m=5),
             None,
+            # None,
+            BRMCode(r=1, m=7),
         )
     elif model_type == "video":
         print("using video")
         outer, inner = (
-            BRMCode(r=1, m=7),
             None,
+            # None,
+            # GRSCode(field_size=256, msg_len=512, pay_len=200),
+            BRMCode(r=1, m=7),
         )
-        # outer, inner = (
-        #     GRSCode(field_size=256, msg_len=512, pay_len=200),
-        #     BRMCode(r=1, m=5),
-        # )
     elif model_type == "longvideo":
         print("using longvideo")
         outer, inner = (

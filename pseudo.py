@@ -191,8 +191,9 @@ class Psyduck():
 
         # Save optionally
         if self.save_images:
-            os.makedirs("logging/videos", exist_ok=True)
-            gif_path = f"logging/videos/{self.iters}_encode_video.gif"
+            model_dir = "logging/video"
+            os.makedirs(model_dir, exist_ok=True)
+            gif_path = os.path.join(model_dir, f"{self.iters}_video_encode.gif")
             pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], optimize=False, duration=100, loop=0)
 
         # Output processing
@@ -235,8 +236,9 @@ class Psyduck():
         
         # Save optionally
         if self.save_images:
-            os.makedirs("logging/images/latent", exist_ok=True)
-            save_path = f"logging/images/latent/{self.iters}_encode_latent.png"
+            model_dir = "logging/latent"
+            os.makedirs(model_dir, exist_ok=True)
+            save_path = os.path.join(model_dir, f"{self.iters}_latent_encode.png")
             pil_img.save(save_path)
 
         # Output handling
@@ -268,8 +270,9 @@ class Psyduck():
 
         # Optionally save image
         if self.save_images:
-            os.makedirs("logging/images/pixel", exist_ok=True)
-            save_path = f"logging/images/pixel/{self.iters}_encode_pixel.png"
+            model_dir = "logging/pixel"
+            os.makedirs(model_dir, exist_ok=True)
+            save_path = os.path.join(model_dir, f"{self.iters}_pixel_encode.png")
             utils.process_pixel(img)[0].save(save_path)
         
         return img
@@ -348,9 +351,11 @@ class Psyduck():
 
         # Save optionally
         if self.save_images:
-            gif_path = f"logging/videos/{self.iters}_decode_video_0.gif"
+            model_dir = "logging/video"
+            os.makedirs(model_dir, exist_ok=True)
+            gif_path = os.path.join(model_dir, f"{self.iters}_video_decode_0.gif")
             pil_frames_0[0].save(gif_path, save_all=True, append_images=pil_frames_0[1:], optimize=False, duration=100, loop=0)
-            gif_path = f"logging/videos/{self.iters}_decode_video_1.gif"
+            gif_path = os.path.join(model_dir, f"{self.iters}_video_decode_1.gif")
             pil_frames_1[0].save(gif_path, save_all=True, append_images=pil_frames_1[1:], optimize=False, duration=100, loop=0)
 
         # Output processing
@@ -457,8 +462,12 @@ class Psyduck():
 
         # Save optionally
         if self.save_images:
-            pil_img_0.save(f"logging/images/latent/{self.iters}_decode_latent_0.png")
-            pil_img_1.save(f"logging/images/latent/{self.iters}_decode_latent_1.png")
+            model_dir = "logging/latent"
+            os.makedirs(model_dir, exist_ok=True)
+            save_path = os.path.join(model_dir, f"{self.iters}_latent_decode_0.png")
+            pil_img_0.save(save_path)
+            save_path = os.path.join(model_dir, f"{self.iters}_latent_decode_1.png")
+            pil_img_1.save(save_path)
         
         # Output processing
         if self.process_type == "pt":
@@ -536,28 +545,18 @@ class Psyduck():
 
         # Optionally save images
         if self.save_images: 
-            utils.process_pixel(img_0)[0].save(f"logging/images/pixel/{self.iters}_decode_pixel_0.png")
-            utils.process_pixel(img_1)[0].save(f"logging/images/pixel/{self.iters}_decode_pixel_1.png")
+            model_dir = "logging/pixel"
+            os.makedirs(model_dir, exist_ok=True)
+            save_path = os.path.join(model_dir, f"{self.iters}_pixel_decode_0.png")
+            utils.process_pixel(img_0)[0].save(save_path)
+            save_path = os.path.join(model_dir, f"{self.iters}_pixel_decode_1.png")
+            utils.process_pixel(img_1)[0].save(save_path)
 
         ######################
         # Online phase       #
         ######################
 
         # Decoding
-        m = utils.decode_message_from_image_diffs(img, img_0, img_1, "pixel", verbose)
+        m = utils.decode_message_from_image_diffs(img, img_0, img_1, "pixel", verbose, debug=False)
 
         return m
-    
-    def _decode_message_from_image_diffs(self, img, img_0, img_1, err_rate, verbose=False):
-        diffs_0 = torch.norm(img - img_0, dim=(0, 1))
-        diffs_1 = torch.norm(img - img_1, dim=(0, 1))
-
-        if self.debug:
-            show = 5
-            print(diffs_0[:show, :show])
-            print(diffs_1[:show, :show])
-
-        m_dec = torch.where(diffs_0 < diffs_1, 0, 1).cpu().detach().numpy().astype(int)
-        if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
-        m_dec = m_dec.flatten()
-        return ecc.ecc_recover(m_dec, err_rate)

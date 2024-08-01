@@ -36,7 +36,7 @@ def main(args):
             # img_sz = pipe.unet.config.sample_size
             # m_sz = (img_sz**2 // 512) * 25
             k = np.random.randint(1000, size=(3,))
-            # m_sz = 10000
+            # m_sz = 3200
             # m_sz = 1536 # pixel
             m_sz = 1440 # svd
             # m_sz = 96 # sd15, sd21
