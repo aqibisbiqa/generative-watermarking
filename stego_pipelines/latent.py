@@ -44,7 +44,7 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers import StableDiffusionPipeline
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 
-from utils import mix_samples_using_payload, empirical_success_rates
+from utils import mix_samples_using_payload
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -114,12 +114,14 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
         **kwargs,
     ):
         match stego_type:
+            case "cover":
+                pass
             case "encode":
                 assert payload is not None
             case "decode":
-                assert payload is None
+                pass
             case _:
-                raise AttributeError("stego_type must be one of [\"encode\", \"decode\"]")
+                raise AttributeError("stego_type must be one of [\"cover\", \"encode\", \"decode\"]")
 
         callback = kwargs.pop("callback", None)
         callback_steps = kwargs.pop("callback_steps", None)
@@ -278,7 +280,7 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
                     noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=self.guidance_rescale)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                if i not in div_timesteps:
+                if i not in div_timesteps or stego_type == "cover":
                     # proceed normally
                     latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs_s, return_dict=False)[0]
                 else:

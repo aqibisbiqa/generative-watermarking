@@ -37,7 +37,7 @@ from diffusers.utils.torch_utils import is_compiled_module, randn_tensor
 from diffusers.video_processor import VideoProcessor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
-from utils import mix_samples_using_payload, empirical_success_rates
+from utils import mix_samples_using_payload
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -393,12 +393,14 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         """
 
         match stego_type:
+            case "cover":
+                pass
             case "encode":
                 assert payload is not None
             case "decode":
-                assert payload is None
+                pass
             case _:
-                raise AttributeError("stego_type must be one of [\"encode\", \"decode\"]")
+                raise AttributeError("stego_type must be one of [\"cover\", \"encode\", \"decode\"]")
         
         # 0. Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
@@ -534,7 +536,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                     noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                if i not in div_timesteps:
+                if i not in div_timesteps or stego_type == "cover":
                     latents = self.scheduler.step(noise_pred, t, latents, s_churn=0, generator=g_k_s).prev_sample
                 else:
                     # divergent steps

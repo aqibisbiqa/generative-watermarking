@@ -6,7 +6,7 @@ from diffusers.schedulers import DDIMScheduler
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
 
-from utils import mix_samples_using_payload, process_pixel, empirical_success_rates
+from utils import mix_samples_using_payload, process_pixel
 
 class StegoDDIMPixelPipeline(DiffusionPipeline):
 
@@ -37,12 +37,14 @@ class StegoDDIMPixelPipeline(DiffusionPipeline):
     ) -> Union[ImagePipelineOutput, Tuple]:
 
         match stego_type:
+            case "cover":
+                pass
             case "encode":
                 assert payload is not None
             case "decode":
-                assert payload is None
+                pass
             case _:
-                raise AttributeError("stego_type must be one of [\"encode\", \"decode\"]")
+                raise AttributeError("stego_type must be one of [\"cover\", \"encode\", \"decode\"]")
 
         g_k_s, g_k_0, g_k_1 = tuple([torch.manual_seed(k) for k in keys])
         device = self._execution_device
@@ -68,7 +70,7 @@ class StegoDDIMPixelPipeline(DiffusionPipeline):
         
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
             resid = self.unet(image, t).sample
-            if i not in div_timesteps:
+            if i not in div_timesteps or stego_type == "cover":
                 image = self.scheduler.step(
                     resid, t, image, eta=eta, generator=g_k_s, use_clipped_model_output=use_clipped_model_output, 
                 ).prev_sample

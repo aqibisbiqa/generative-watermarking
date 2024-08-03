@@ -26,5 +26,5 @@ def argument_parser():
     parser.add_argument('--verbose', type=bool, default=False, help='toggle to show more feedback during inference')
     parser.add_argument('--ignore_warnings', type=bool, default=True,
                         help='whether to ignore DeprecationWarnings and FutureWarnings')
-    parser.add_argument('--old', action='store_true', help='use old version DELETE THIS EVENTUALLY')
+    parser.add_argument('--gen_covers', action='store_true', help='to generate cover images w/out steganographic embeddings')
     return parser

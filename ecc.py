@@ -10,33 +10,29 @@ from coding.brm import BRMCode
 # @title ECC
 
 def get_code(model_type):
-    # HammingCode(field_size=2, msg_len=12, pay_len=8),
-    # GRSCode(field_size=256, msg_len=512, pay_len=200),
     if model_type == "pixel":
-        print("using pixel")
         outer, inner = (
             None,
-            # None,
+            None,
             # GRSCode(field_size=256, msg_len=512, pay_len=200),
-            BRMCode(r=1, m=7),
+            # HammingCode(field_size=2, msg_len=12, pay_len=8),
+            # BRMCode(r=1, m=7),
         )
     elif model_type == "latent":
-        print("using latent")
         outer, inner = (
             None,
-            # None,
-            BRMCode(r=1, m=7),
+            None,
+            # BRMCode(r=1, m=7),
         )
     elif model_type == "video":
-        print("using video")
         outer, inner = (
             None,
             None,
             # GRSCode(field_size=256, msg_len=512, pay_len=200),
+            # HammingCode(field_size=2, msg_len=12, pay_len=8),
             # BRMCode(r=1, m=7),
         )
     elif model_type == "longvideo":
-        print("using longvideo")
         outer, inner = (
             None,
             None,

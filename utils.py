@@ -1,34 +1,13 @@
 import torch
 import numpy as np
-import random
-import copy
-import functools
 from PIL import Image, ImageOps
 from einops import rearrange
 
 import ecc
 
-def process_pixel(images):
-    images = (images / 2 + 0.5).clamp(0, 1)
-    dims = (0, 2, 3, 1) if images.ndim==4 else (1, 2, 0)
-    images = images.cpu().permute(*dims).numpy()
-    images = numpy_to_pil(images)
-    return images
-
-def numpy_to_pil(images):
-    """
-    Convert a numpy image or a batch of images to a PIL image.
-    """
-    if images.ndim == 3:
-        images = images[None, ...]
-    images = (images * 255).round().astype("uint8")
-    if images.shape[-1] == 1:
-        # special case for grayscale (single channel) images
-        pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
-    else:
-        pil_images = [Image.fromarray(image) for image in images]
-
-    return pil_images
+#####################
+### Coding Related ##
+#####################
 
 def apply_op_to_chunks(arr: np.ndarray, chunk_size, op):
     l = len(arr)
@@ -46,7 +25,34 @@ def bitarray_to_int(bitlist):
         out = (out << 1) | bit
     return out
 
-# Function to rescale image and add padding if necessary
+########################
+### Image Processing ###
+########################
+
+def process_pixel(images):
+    images = (images / 2 + 0.5).clamp(0, 1)
+    dims = (0, 2, 3, 1) if images.ndim==4 else (1, 2, 0)
+    images = images.cpu().permute(*dims).numpy()
+    images = numpy_to_pil(images)
+    return images
+
+    # Adapted from function in diffusers library
+def numpy_to_pil(images):
+    """
+    Convert a numpy image or a batch of images to a PIL image.
+    """
+    if images.ndim == 3:
+        images = images[None, ...]
+    images = (images * 255).round().astype("uint8")
+    if images.shape[-1] == 1:
+        # special case for grayscale (single channel) images
+        pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
+    else:
+        pil_images = [Image.fromarray(image) for image in images]
+
+    return pil_images
+
+    # Prep image for SVD input (rescale image and add padding if necessary)
 def prepare_image(image_path, target_height=576, target_width=1024):
     image = Image.open(image_path)
 
@@ -72,15 +78,11 @@ def prepare_image(image_path, target_height=576, target_width=1024):
 
     return image
 
-empirical_success_rates = {
-    # "longvideo": 0.85,
-    # "video": 0.90,
-    "video": 0.99,
-    "latent": 0.85,
-    "pixel": 0.70,
-}
+#################################
+### PSyDUCK Mixing + Unmixing ###
+#################################
 
-def mix_samples_using_payload(payload, samp_0, samp_1, model_type, verbose=False):
+def mix_samples_using_payload(payload, samp_0, samp_1, model_type):
     if samp_0.dim() == 5:
         # video
         samp_0 = rearrange(samp_0, 'b f c h w -> b c f h w').contiguous()
@@ -95,19 +97,25 @@ def mix_samples_using_payload(payload, samp_0, samp_1, model_type, verbose=False
         res = rearrange(res, 'b c f h w -> b f c h w').contiguous()
     return res
 
-def decode_message_from_image_diffs(samp, samp_0, samp_1, model_type, verbose=False, debug=True):
+def decode_message_from_image_diffs(samp, samp_0, samp_1, model_type):
     diffs_0 = torch.norm(samp - samp_0, dim=(0, 1))
     diffs_1 = torch.norm(samp - samp_1, dim=(0, 1))
 
-    if debug:
+    m_dec = torch.where(diffs_0 < diffs_1, 0, 1).cpu().detach().numpy().astype(int)
+    m_dec = m_dec.flatten()
+    
+    # debugging
+    if model_type in ["latent"]:
         show = 5
         print(diffs_0[:show, :show])
         print(diffs_1[:show, :show])
+        print("Message AFTER Transmission:", m_dec, sep="\n")
 
-    m_dec = torch.where(diffs_0 < diffs_1, 0, 1).cpu().detach().numpy().astype(int)
-    if verbose: print("Message AFTER Transmission:", m_dec, sep="\n")
-    m_dec = m_dec.flatten()
     return ecc.ecc_decode(m_dec, model_type)
+
+########################
+### Experiment Utils ###
+########################
 
 def calc_acc(m: np.ndarray, out: np.ndarray, bitwise=True):
     min_len = min(len(m), len(out))

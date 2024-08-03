@@ -1,6 +1,6 @@
 import torch
 
-def get_pipeline(model, device, old=False):
+def get_pipeline(model, device):
 
     model_is_supported = False
 
@@ -29,6 +29,8 @@ def get_pipeline(model, device, old=False):
             pipe.to(device)
             # pipe.enable_sequential_cpu_offload()
             # pipe.enable_model_cpu_offload()
+        case "longvideo":
+            raise NotImplementedError("longvideo not yet supported")
     
     return pipe
 
@@ -52,5 +54,10 @@ models_by_type = {
     "video": {
         "svd": "stabilityai/stable-video-diffusion-img2vid",
         "svdxt": "stabilityai/stable-video-diffusion-img2vid-xt",
+    },
+
+    "longvideo": {
+        "fifo_svd": "stabilityai/stable-video-diffusion-img2vid",
+        "fifo_svdxt": "stabilityai/stable-video-diffusion-img2vid-xt",
     },
 }
