@@ -318,7 +318,7 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
         return_dict: bool = True,
         keys: tuple = (10, 11, 12),
         payload = None,
-        num_div_steps = 2,
+        num_div_steps: int = 1,
     ):
         r"""
         The call function to the pipeline for generation.

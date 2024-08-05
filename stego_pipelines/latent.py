@@ -110,7 +110,7 @@ class StegoStableDiffusionPipeline(StableDiffusionPipeline):
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         keys: tuple = (10, 11, 12),
         payload = None,
-        num_div_steps = 1,
+        num_div_steps: int = 1,
         **kwargs,
     ):
         match stego_type:

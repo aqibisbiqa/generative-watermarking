@@ -33,7 +33,7 @@ class StegoDDIMPixelPipeline(DiffusionPipeline):
         return_dict: bool = True,
         keys: tuple = (10, 11, 12),
         payload = None,
-        num_div_steps = 1,
+        num_div_steps: int = 1,
     ) -> Union[ImagePipelineOutput, Tuple]:
 
         match stego_type:

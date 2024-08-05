@@ -105,7 +105,9 @@ def decode_message_from_image_diffs(samp, samp_0, samp_1, model_type):
     m_dec = m_dec.flatten()
     
     # debugging
-    if model_type in ["latent"]:
+    if model_type in [
+        # "video",
+    ]:
         show = 5
         print(diffs_0[:show, :show])
         print(diffs_1[:show, :show])

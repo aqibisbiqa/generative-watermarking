@@ -1,5 +1,7 @@
 from sys import argv
 import argparse
+import os
+from prettytable import PrettyTable
 
 # own files
 
@@ -25,72 +27,92 @@ def main(args):
         raise Exception("use gpu sir")
 
     pipe = get_pipeline(args.model, device)
+    p = Psyduck(pipe)
+    
+    ### Logging Setup ###
+    log_headers = ["model_type", "model", "div_steps", "iters", "bytes_enc", "acc", "std"]
+    log_path = f"logging/{p.model_type}/{args.model}.txt"
+    print(f"using {log_path}")
+    if not os.path.exists(log_path):
+        with open(log_path, 'w') as log:
+            log.write(",".join(log_headers))
+    log_data = []
     
     ### Experiment Loop ###
-    accs, i = [], 0
-    np.random.seed(0)
-    p = Psyduck(pipe)
-    while i < args.iters:
-        try:
-            print("#"*75)
-            k = np.random.randint(1000, size=(3,))
-            p.keys = k
+    for div_steps in [3, 2, 1]:
+        accs, i = [], 0
+        np.random.seed(args.seed)
+        p.div_steps = div_steps
+        p.iters = 240
+        while i < args.iters:
+            try:
+                print("#"*75)
+                k = np.random.randint(1000, size=(3,))
+                p.keys = k
 
-            m_sz = 7680
-            m = np.random.randint(256, size=m_sz, dtype=np.uint8)
-            
-            # prompt = "A man with a mustache."
-            # prompt = "A photo of a cat."
-            # p.prompt = prompt
-            prompts = [
-                "A man with a mustache.",
-                "A photo of a cat.",
-                "Eiffel Tower under the blue sky.",
-                "Sydney Opera House.",
-                "Leaning Tower of Pisa.",
-                "Young girl with blond hair.",
-                "A cute rabbit.",
-                "Obama giving a speech.",
-                "Tomatoes hanging on a tree.",
-                "A multi layered sandwich.",
-            ]
-            p.prompt = prompts[np.random.randint(len(prompts))]
-            
-            p.iters += 1
-            print(f"Iteration {i+1} using keys {k}")
-            
-            if args.gen_covers:
-                print("GENERATING COVER SAMPLE")
-                p.generate_cover()
-            
-            print("ENCODING")
-            img = p.encode(m)
-            
-            print("DECODING")
-            out = p.decode(img)
-        except ValueError as e:
-            if "operands could not be broadcast together with shapes" in str(e):
-                print("stupid broadcast error, retrying")
+                m_sz = 200
+                m = np.random.randint(256, size=m_sz, dtype=np.uint8)
+                
+                if p.model_type in ["latent", "longvideo"]:
+                    prompts = [
+                        "A man with a mustache.",
+                        "A photo of a cat.",
+                        "Eiffel Tower under the blue sky.",
+                        "Sydney Opera House.",
+                        "Leaning Tower of Pisa.",
+                        "Young girl with blond hair.",
+                        "A cute rabbit.",
+                        "Tomatoes hanging on a tree.",
+                        "A multi layered sandwich.",
+                    ]
+                    p.prompt = prompts[np.random.randint(len(prompts))]
+                
+                p.iters += 1
+                print(f"Iteration {i+1} using keys {k}")
+                
+                if args.gen_covers:
+                    print("GENERATING COVER SAMPLE")
+                    p.generate_cover()
+                
+                print("ENCODING")
+                img = p.encode(m)
+                
+                print("DECODING")
+                out = p.decode(img)
+            except ValueError as e:
+                if "operands could not be broadcast together with shapes" in str(e):
+                    print("stupid broadcast error, retrying")
+                else:
+                    raise
+            except ZeroDivisionError as e:
+                print("stupid galois field error, retrying")
             else:
-                raise
-        except ZeroDivisionError as e:
-            print("stupid galois field error, retrying")
-        else:
-            print(f"length of m is {len(m)} bytes")
-            print(f"length of out is {len(out)} bytes")
-            acc = utils.calc_acc(m, out)
-            accs.append(acc)
-            print(f"Run accuracy {acc:.2%}")
-            i += 1
-            # plot pareto curves
-    
-    torch.cuda.empty_cache()
-    
+                print(f"length of m is {len(m)} bytes")
+                print(f"length of out is {len(out)} bytes")
+                acc = utils.calc_acc(m, out)
+                accs.append(acc)
+                print(f"Run accuracy {acc:.2%}")
+                i += 1
+                # plot pareto curves
+        
+        ## recall that log_headers = ["model_type", "model", "div_steps", "iters", "bytes_enc", "acc", "std"]
+        log_row = [p.model_type, args.model, div_steps, args.iters, min(m_sz, len(out)), np.mean(accs).round(4), np.std(accs).round(4)]
+        with open(log_path, 'a') as log:
+            log.write("\n")
+            log.write(",".join([str(datum) for datum in log_row]))
+        log_data.append(log_row)
+        
+        print("#"*75)
+        print(f"Final Average Accuracy for {args.model} w/ {div_steps} div_steps over {args.iters} runs:",
+              f"{np.mean(accs):.2%} +/- {np.std(accs):.2%}")
+        print(f"{np.round(accs, 2)}")
+        
     ### Print Output ###
-    print("#"*75)
-    print(f"Final Average Accuracy {np.mean(accs):.2%} +/- {np.std(accs):.2%}")
-    print(f"{np.round(accs, 2)}")
-    return accs
+    table = PrettyTable()
+    table.field_names = log_headers
+    table.add_rows(log_data)
+    print("\n"+"#"*75, "\n")
+    print(table)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -109,6 +131,7 @@ if __name__ == "__main__":
         "\"svdxt\": stabilityai/stable-video-diffusion-img2vid-xt",
     ]))
     parser.add_argument('--iters', type=int, default=1, help='number of iterations to test model')
+    parser.add_argument('--seed', type=int, default=0, help='seed for key and random message generation')
     parser.add_argument('--img_timesteps', type=int, default=50, help='number of denoising steps for image models')
     parser.add_argument('--vid_timesteps', type=int, default=25, help='number of denoising steps for video models')
     parser.add_argument('--filename', type=str, default="results.txt", help='output file')
@@ -119,4 +142,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     accs = main(args)
-    # TODO: log accs

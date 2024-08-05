@@ -12,17 +12,17 @@ from coding.brm import BRMCode
 def get_code(model_type):
     if model_type == "pixel":
         outer, inner = (
-            None,
-            None,
-            # GRSCode(field_size=256, msg_len=512, pay_len=200),
+            # None,
+            # None,
+            GRSCode(field_size=256, msg_len=512, pay_len=200),
             # HammingCode(field_size=2, msg_len=12, pay_len=8),
-            # BRMCode(r=1, m=7),
+            BRMCode(r=1, m=7),
         )
     elif model_type == "latent":
         outer, inner = (
             None,
-            None,
-            # BRMCode(r=1, m=7),
+            # None,
+            BRMCode(r=1, m=7),
         )
     elif model_type == "video":
         outer, inner = (

@@ -41,6 +41,7 @@ class Psyduck():
         self.timesteps = timesteps
         self.video_timesteps = 25
         self.prompt = prompt
+        self.div_steps = 1
         
         # for input
         images_for_svd = [
@@ -129,7 +130,7 @@ class Psyduck():
 
         # Save optionally
         if self.save_images:
-            model_dir = "logging/video"
+            model_dir = "logging/video/covers"
             os.makedirs(model_dir, exist_ok=True)
             gif_path = os.path.join(model_dir, f"{self.iters}_video_cover.gif")
             pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], optimize=False, duration=100, loop=0)
@@ -170,7 +171,7 @@ class Psyduck():
         
         # Save optionally
         if self.save_images:
-            model_dir = "logging/latent"
+            model_dir = f"logging/latent/covers"
             os.makedirs(model_dir, exist_ok=True)
             save_path = os.path.join(model_dir, f"{self.iters}_latent_cover.png")
             pil_img.save(save_path)
@@ -202,7 +203,7 @@ class Psyduck():
 
         # Optionally save image
         if self.save_images:
-            model_dir = "logging/pixel"
+            model_dir = "logging/pixel/covers"
             os.makedirs(model_dir, exist_ok=True)
             save_path = os.path.join(model_dir, f"{self.iters}_pixel_cover.png")
             utils.process_pixel(img)[0].save(save_path)
@@ -319,6 +320,7 @@ class Psyduck():
             stego_type="encode",
             payload=m,
             keys = self.keys,
+            num_div_steps=self.div_steps,
             output_type="latent",
             image=image,
             height=height,
@@ -347,7 +349,7 @@ class Psyduck():
 
         # Save optionally
         if self.save_images:
-            model_dir = "logging/video"
+            model_dir = f"logging/video/{self.div_steps}_div_step{"s" if self.div_steps > 1 else ""}"
             os.makedirs(model_dir, exist_ok=True)
             gif_path = os.path.join(model_dir, f"{self.iters}_video_encode.gif")
             pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], optimize=False, duration=100, loop=0)
@@ -374,6 +376,7 @@ class Psyduck():
             stego_type="encode",
             payload=m,
             keys = self.keys,
+            num_div_steps=self.div_steps,
             output_type="latent",
             prompt=self.prompt,
             num_inference_steps=timesteps,
@@ -392,7 +395,7 @@ class Psyduck():
         
         # Save optionally
         if self.save_images:
-            model_dir = "logging/latent"
+            model_dir = f"logging/latent/{self.div_steps}_div_step{"s" if self.div_steps > 1 else ""}"
             os.makedirs(model_dir, exist_ok=True)
             save_path = os.path.join(model_dir, f"{self.iters}_latent_encode.png")
             pil_img.save(save_path)
@@ -420,13 +423,14 @@ class Psyduck():
             stego_type="encode",
             keys=self.keys,
             payload=m,
+            num_div_steps=self.div_steps,
         )
 
         img = pipeline_output["images"]
 
         # Optionally save image
         if self.save_images:
-            model_dir = "logging/pixel"
+            model_dir = f"logging/pixel/{self.div_steps}_div_step{"s" if self.div_steps > 1 else ""}"
             os.makedirs(model_dir, exist_ok=True)
             save_path = os.path.join(model_dir, f"{self.iters}_pixel_encode.png")
             utils.process_pixel(img)[0].save(save_path)
@@ -473,6 +477,7 @@ class Psyduck():
         pipeline_output = self.pipe(
             stego_type="decode",
             keys = self.keys,
+            num_div_steps=self.div_steps,
             output_type="latent",
             image=image,
             height=height,
@@ -503,7 +508,7 @@ class Psyduck():
 
         # Save optionally
         if self.save_images:
-            model_dir = "logging/video"
+            model_dir = f"logging/video/{self.div_steps}_div_step{"s" if self.div_steps > 1 else ""}"
             os.makedirs(model_dir, exist_ok=True)
             gif_path = os.path.join(model_dir, f"{self.iters}_video_decode_0.gif")
             pil_frames_0[0].save(gif_path, save_all=True, append_images=pil_frames_0[1:], optimize=False, duration=100, loop=0)
@@ -592,6 +597,7 @@ class Psyduck():
         pipeline_output = self.pipe(
             stego_type="decode",
             keys = self.keys,
+            num_div_steps=self.div_steps,
             output_type="latent",
             prompt=self.prompt,
             num_inference_steps=timesteps,
@@ -613,7 +619,8 @@ class Psyduck():
 
         # Save optionally
         if self.save_images:
-            model_dir = "logging/latent"
+            model_dir = f"logging/latent/{self.div_steps}_div_step{"s" if self.div_steps > 1 else ""}"
+            print(f"saving to {model_dir}")
             os.makedirs(model_dir, exist_ok=True)
             save_path = os.path.join(model_dir, f"{self.iters}_latent_decode_0.png")
             pil_img_0.save(save_path)
@@ -689,13 +696,14 @@ class Psyduck():
             return_dict=True,
             stego_type="decode",
             keys=self.keys,
+            num_div_steps=self.div_steps,
         )
         
         img_0, img_1 = pipeline_output["images"].chunk(2)
 
         # Optionally save images
         if self.save_images: 
-            model_dir = "logging/pixel"
+            model_dir = f"logging/pixel/{self.div_steps}_div_step{"s" if self.div_steps > 1 else ""}"
             os.makedirs(model_dir, exist_ok=True)
             save_path = os.path.join(model_dir, f"{self.iters}_pixel_decode_0.png")
             utils.process_pixel(img_0)[0].save(save_path)
