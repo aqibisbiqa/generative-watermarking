@@ -1,6 +1,10 @@
 [submodule "coding/hamming-codec"]
 	path = coding/hamming-codec
+<<<<<<< HEAD
 	url = https://github.com/fegennari/hamming-codec.git
+=======
+	url = https://github.com/fegennari/hamming-codec
+>>>>>>> 9d2de94a6e7a968a6dfe8f8082f7333d8de62afc
 [submodule "steganalysis/kenet"]
 	path = steganalysis/kenet
 	url = https://github.com/SiaStg/SiaStegNet.git
