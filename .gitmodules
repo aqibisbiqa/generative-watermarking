@@ -1,5 +1,5 @@
-[submodule "pulsar-reproduce/pulsar-reproduce/coding/hamming-codec"]
-	path = pulsar-reproduce/coding/hamming-codec
+[submodule "coding/hamming-codec"]
+	path = coding/hamming-codec
 	url = https://github.com/fegennari/hamming-codec
 [submodule "steganalysis/kenet"]
 	path = steganalysis/kenet
