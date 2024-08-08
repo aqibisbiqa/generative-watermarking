@@ -1,6 +1,12 @@
 [submodule "pulsar-reproduce/pulsar-reproduce/coding/hamming-codec"]
 	path = pulsar-reproduce/coding/hamming-codec
 	url = https://github.com/fegennari/hamming-codec
-[submodule "steganalysis/steganalysis/kenet"]
-	path = steganalysis/steganalysis/kenet
+[submodule "steganalysis/kenet"]
+	path = steganalysis/kenet
 	url = https://github.com/SiaStg/SiaStegNet.git
+[submodule "steganalysis/srnet"]
+	path = steganalysis/srnet
+	url = https://github.com/brijeshiitg/Pytorch-implementation-of-SRNet.git
+[submodule "stego_pipelines/longvideo/FIFO_Diffusion"]
+	path = stego_pipelines/longvideo/FIFO_Diffusion
+	url = https://github.com/jjihwan/FIFO-Diffusion_public.git
