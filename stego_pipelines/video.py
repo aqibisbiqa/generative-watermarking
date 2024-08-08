@@ -557,8 +557,8 @@ class StegoStableVideoDiffusionPipeline(DiffusionPipeline):
                     if True:
                         sigma = sched.sigmas[sched.step_index]
                         gamma = min(s_churn / (len(sched.sigmas) - 1), 2**0.5 - 1)
-                        # s_noise = 1
-                        s_noise = 10 ** 1
+                        s_noise = 1
+                        # s_noise = 10 ** 1
                         sigma_hat = sigma * (gamma + 1)
                         print(f"sched sigma is {sigma}")
                         print(f"sched gamma is {gamma}")

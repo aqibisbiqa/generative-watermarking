@@ -39,20 +39,21 @@ def main(args):
     log_data = []
     
     ### Experiment Loop ###
-    for div_steps in [3, 2, 1]:
+    for div_steps in [1]:
         accs, i = [], 0
         np.random.seed(args.seed)
         p.div_steps = div_steps
-        p.iters = 240
+        p.iters = 180
         while i < args.iters:
             try:
                 print("#"*75)
                 k = np.random.randint(1000, size=(3,))
                 p.keys = k
 
-                m_sz = 200
+                m_sz = 3200
                 m = np.random.randint(256, size=m_sz, dtype=np.uint8)
                 
+                # provide random context
                 if p.model_type in ["latent", "longvideo"]:
                     prompts = [
                         "A man with a mustache.",
@@ -66,14 +67,24 @@ def main(args):
                         "A multi layered sandwich.",
                     ]
                     p.prompt = prompts[np.random.randint(len(prompts))]
+                elif p.model_type in ["video"]:
+                    svd_base_imgs = [
+                        "bearded_man.jpg",
+                        "dog_run.jpg",
+                        "low_res_cat.jpg",
+                    ]
+                    svd_base_img = svd_base_imgs[np.random.randint(len(svd_base_imgs))]
+                    p.input_image_location = f"svd_base_images/{svd_base_img}"
                 
                 p.iters += 1
                 print(f"Iteration {i+1} using keys {k}")
                 
-                if args.gen_covers:
+                if args.generate_covers:
                     print("GENERATING COVER SAMPLE")
                     p.generate_cover()
-                
+                    i += 1
+                    continue
+
                 print("ENCODING")
                 img = p.encode(m)
                 
@@ -82,10 +93,12 @@ def main(args):
             except ValueError as e:
                 if "operands could not be broadcast together with shapes" in str(e):
                     print("stupid broadcast error, retrying")
+                    p.iters -= 1
                 else:
                     raise
             except ZeroDivisionError as e:
                 print("stupid galois field error, retrying")
+                p.iters -= 1
             else:
                 print(f"length of m is {len(m)} bytes")
                 print(f"length of out is {len(out)} bytes")
@@ -93,7 +106,6 @@ def main(args):
                 accs.append(acc)
                 print(f"Run accuracy {acc:.2%}")
                 i += 1
-                # plot pareto curves
         
         ## recall that log_headers = ["model_type", "model", "div_steps", "iters", "bytes_enc", "acc", "std"]
         log_row = [p.model_type, args.model, div_steps, args.iters, min(m_sz, len(out)), np.mean(accs).round(4), np.std(accs).round(4)]
@@ -137,7 +149,7 @@ if __name__ == "__main__":
     parser.add_argument('--filename', type=str, default="results.txt", help='output file')
     parser.add_argument('--ignore_warnings', type=bool, default=True,
                         help='whether to ignore DeprecationWarnings and FutureWarnings')
-    parser.add_argument('--gen_covers', action='store_true', help='to generate cover images w/out steganographic embeddings')
+    parser.add_argument('--generate_covers', action='store_true', help='to generate cover images w/out steganographic embeddings')
 
     args = parser.parse_args()
 
